@@ -94,7 +94,7 @@ Backend принимает `Telegram.WebApp.initData` и проверяет по
 TELEGRAM_BOT_TOKEN=... PUBLIC_APP_URL=https://your-app.example python -m scripts.configure_telegram
 ```
 
-Скрипт использует Telegram Bot API `setChatMenuButton` и добавляет команду `/start`.
+Скрипт использует Telegram Bot API `setChatMenuButton`. Отдельный обработчик сообщений бота для MVP не нужен.
 
 ## Timeweb Cloud App Platform
 

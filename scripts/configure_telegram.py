@@ -36,13 +36,7 @@ def main() -> None:
     if not menu.get("ok"):
         raise SystemExit(f"setChatMenuButton failed: {menu}")
 
-    commands = telegram_call(token, "setMyCommands", {
-        "commands": [{"command": "start", "description": "Открыть MB16 Showroom"}]
-    })
-    if not commands.get("ok"):
-        raise SystemExit(f"setMyCommands failed: {commands}")
-
-    print("Telegram bot menu configured")
+    print("Telegram Mini App menu button configured")
 
 
 if __name__ == "__main__":
