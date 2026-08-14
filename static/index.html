@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="color-scheme" content="light dark">
+  <title>MB16 Showroom</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
+  <link rel="stylesheet" href="/static/styles.css">
+</head>
+<body>
+  <header class="topbar">
+    <div><div class="eyebrow">SHOWROOM</div><div class="brand" id="brandTitle">MB16</div></div>
+    <button class="profile" id="profileButton" type="button">Профиль</button>
+  </header>
+  <main id="content"></main>
+  <nav class="bottom-nav" id="bottomNav" aria-label="Навигация"></nav>
+
+  <div class="modal hidden" id="modalBackdrop">
+    <section class="modal-sheet" role="dialog" aria-modal="true">
+      <div class="modal-head"><div><div class="eyebrow" id="modalEyebrow"></div><h2 id="modalTitle"></h2></div><button class="close" id="modalClose" type="button">×</button></div>
+      <div id="modalBody"></div>
+    </section>
+  </div>
+  <div class="toast hidden" id="toast" aria-live="polite"></div>
+  <script src="/static/app.js"></script>
+</body>
+</html>
