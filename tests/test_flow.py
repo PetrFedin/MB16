@@ -30,8 +30,8 @@ PNG = base64.b64decode(
 def test_full_mvp_flow():
     assert client.get("/health").json() == {"ok": True}
     assert client.get("/api/me", headers=ADMIN).json()["is_admin"] is True
+    assert client.get("/api/admin/products", headers=USER).status_code == 403
 
-    files = [("images", (f"{i}.png", PNG, "image/png")) for i in range(3)]
     data = {
         "name": "Test Jacket",
         "article": "MB16-CI-001",
@@ -41,6 +41,10 @@ def test_full_mvp_flow():
         "category": "Одежда",
         "description": "CI smoke test",
     }
+    too_few_files = [("images", (f"bad-{i}.png", PNG, "image/png")) for i in range(2)]
+    assert client.post("/api/admin/products", headers=ADMIN, data=data, files=too_few_files).status_code == 400
+
+    files = [("images", (f"{i}.png", PNG, "image/png")) for i in range(3)]
     response = client.post("/api/admin/products", headers=ADMIN, data=data, files=files)
     assert response.status_code == 200, response.text
     product_id = response.json()["id"]
@@ -68,9 +72,24 @@ def test_full_mvp_flow():
     response = client.post(
         "/api/selection",
         headers=USER,
+        json={"product_id": product_id, "color": "Black", "size": "999"},
+    )
+    assert response.status_code == 400, response.text
+
+    response = client.post(
+        "/api/selection",
+        headers=USER,
         json={"product_id": product_id, "color": "Black", "size": "48"},
     )
     assert response.status_code == 200, response.text
+
+    yesterday = (date.today() - timedelta(days=1)).isoformat()
+    response = client.post(
+        "/api/fittings",
+        headers=USER,
+        json={"date": yesterday, "time": "14:00:00", "comment": "past"},
+    )
+    assert response.status_code == 400, response.text
 
     fitting_date = (date.today() + timedelta(days=1)).isoformat()
     response = client.post(
