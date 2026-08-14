@@ -10,7 +10,8 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY app ./app
 COPY static ./static
+COPY scripts ./scripts
 RUN mkdir -p /app/data/uploads
 
 EXPOSE 8000
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["sh", "-c", "python -m scripts.preflight && uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]

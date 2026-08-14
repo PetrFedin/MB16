@@ -11,12 +11,14 @@
 - одна простая подборка «Подборка»;
 - запрос на примерку с датой, временем и комментарием;
 - список своих примерок и их статусов;
-- после подтвержденной примерки клиент отмечает, какие вещи купил;
+- после фактического визита (админ нажал «Клиент пришёл») клиент отмечает, какие вещи купил;
 - отдельный экран «Покупки» в личном кабинете.
 
 ### Администратор
 - отдельная вкладка «Админ» только для Telegram ID из `ADMIN_TELEGRAM_IDS`;
 - создание и немедленная публикация карточки;
+- редактирование названия, артикула, цены, категории, цветов, размеров и информации;
+- предпросмотр выбранных фото до публикации;
 - статусы товара: `available`, `hidden`, `sold`;
 - просмотр всех запросов на примерку;
 - ручная проверка наличия каждой выбранной вещи: «Есть / Нет»;
@@ -81,11 +83,18 @@ Debug-вход отключается автоматически при `APP_ENV
 APP_ENV=production
 TELEGRAM_BOT_TOKEN=<token BotFather>
 ADMIN_TELEGRAM_IDS=<ваш числовой Telegram ID>
+APP_TIMEZONE=Europe/Moscow
 ```
 
 Backend принимает `Telegram.WebApp.initData` и проверяет подпись на сервере перед использованием Telegram user data.
 
-После деплоя укажите публичный HTTPS URL приложения как Main Mini App URL в настройках бота через BotFather.
+После деплоя можно привязать HTTPS URL к кнопке меню бота автоматически:
+
+```bash
+TELEGRAM_BOT_TOKEN=... PUBLIC_APP_URL=https://your-app.example python -m scripts.configure_telegram
+```
+
+Скрипт использует Telegram Bot API `setChatMenuButton` и добавляет команду `/start`.
 
 ## Timeweb Cloud App Platform
 
@@ -102,6 +111,7 @@ Backend принимает `Telegram.WebApp.initData` и проверяет по
 ```env
 APP_NAME=MB16 Showroom
 APP_ENV=production
+APP_TIMEZONE=Europe/Moscow
 DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST:PORT/DBNAME
 TELEGRAM_BOT_TOKEN=...
 ADMIN_TELEGRAM_IDS=123456789
@@ -117,6 +127,10 @@ S3_PUBLIC_BASE_URL=https://s3.twcstorage.ru/BUCKET_NAME
 Если Timeweb выдает `DATABASE_URL` со схемой `postgresql://` или `postgres://`, приложение автоматически переключит её на драйвер `psycopg`.
 
 Подробно: `DEPLOY_TIMEWEB.md`.
+
+## Production preflight
+
+Перед запуском контейнер выполняет `python -m scripts.preflight`. В production он не стартует, если не настроены PostgreSQL, токен Telegram, хотя бы один admin Telegram ID или обязательные S3-переменные.
 
 ## Если это обычный Timeweb VPS с Docker
 
@@ -137,6 +151,7 @@ S3_PUBLIC_BASE_URL=https://s3.twcstorage.ru/BUCKET_NAME
 ### Администратор
 - `GET /api/admin/products`
 - `POST /api/admin/products`
+- `PATCH /api/admin/products/{id}`
 - `PATCH /api/admin/products/{id}/status`
 - `GET /api/admin/fittings`
 - `PATCH /api/admin/fittings/{id}/items/{item_id}`
@@ -155,6 +170,9 @@ app/
   schemas.py    request schemas
   storage.py    local/S3 media adapter
   telegram.py   optional bot notifications
+scripts/
+  preflight.py            production environment validation
+  configure_telegram.py   bot menu / Mini App URL setup
 static/
   index.html
   styles.css
@@ -168,4 +186,4 @@ docker-compose.local.yml    local/VPS full stack
 
 На текущей версии пройден end-to-end smoke test:
 
-`создание карточки -> каталог -> подборка -> запрос -> проверка наличия -> подтверждение -> клиент отметил покупку -> админ подтвердил продажу -> товар скрыт -> покупка сохранена`.
+`создание карточки -> редактирование карточки -> каталог -> подборка -> запрос -> проверка наличия -> подтверждение -> клиент пришёл -> клиент отметил покупку -> админ подтвердил продажу -> товар скрыт -> покупка сохранена`.

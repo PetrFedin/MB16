@@ -1,26 +1,27 @@
 from __future__ import annotations
 
-from datetime import date
+from datetime import date, datetime
 from decimal import Decimal
 from pathlib import Path
+from zoneinfo import ZoneInfo
 from typing import Annotated
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import desc, select
+from sqlalchemy import desc, select, text
 from sqlalchemy.orm import Session, selectinload
 
 from .auth import admin_context, current_context
 from .config import get_settings
-from .db import Base, engine, get_db
+from .db import Base, SessionLocal, engine, get_db
 from .models import FittingItem, FittingRequest, Product, ProductMedia, SelectionItem
-from .schemas import AdminFittingUpdate, AvailabilityUpdate, FittingCreate, ProductStatusUpdate, PurchaseClaim, SelectionCreate
+from .schemas import AdminFittingUpdate, AvailabilityUpdate, FittingCreate, ProductEdit, ProductStatusUpdate, PurchaseClaim, SelectionCreate
 from .storage import save_upload
 from .telegram import notify_admins, send_telegram_message
 
 settings = get_settings()
-app = FastAPI(title=settings.app_name, version="0.1.0")
+app = FastAPI(title=settings.app_name, version="0.2.0")
 Base.metadata.create_all(bind=engine)
 settings.upload_path.mkdir(parents=True, exist_ok=True)
 
@@ -83,7 +84,19 @@ def fitting_json(r: FittingRequest, admin: bool = False) -> dict:
 
 @app.get("/health")
 def health():
+    with SessionLocal() as db:
+        db.execute(text("SELECT 1"))
     return {"ok": True}
+
+
+def _local_now() -> datetime:
+    return datetime.now(ZoneInfo(settings.app_timezone))
+
+
+def _is_future(local_date: date, local_time) -> bool:
+    current = _local_now()
+    candidate = datetime.combine(local_date, local_time, tzinfo=current.tzinfo)
+    return candidate > current
 
 
 @app.get("/", include_in_schema=False)
@@ -147,8 +160,8 @@ def delete_selection(item_id: int, db: Session = Depends(get_db), ctx=Depends(cu
 
 @app.post("/api/fittings")
 async def create_fitting(body: FittingCreate, db: Session = Depends(get_db), ctx=Depends(current_context)):
-    if body.date < date.today():
-        raise HTTPException(400, "Choose today or a future date")
+    if not _is_future(body.date, body.time):
+        raise HTTPException(400, "Choose a future date and time")
     q = select(SelectionItem).options(selectinload(SelectionItem.product)).where(SelectionItem.user_id == ctx["user_id"])
     selected = [i for i in db.scalars(q).all() if i.product.status == "available"]
     if not selected:
@@ -174,8 +187,8 @@ async def claim_purchases(request_id: int, body: PurchaseClaim, db: Session = De
     r = db.scalar(select(FittingRequest).options(selectinload(FittingRequest.items)).where(FittingRequest.id == request_id))
     if not r or r.user_id != ctx["user_id"]:
         raise HTTPException(404, "Fitting not found")
-    if r.status not in {"confirmed", "completed"}:
-        raise HTTPException(400, "Fitting is not confirmed")
+    if r.status != "completed":
+        raise HTTPException(400, "Purchases can be marked after the visit is completed")
     allowed = {i.id for i in r.items if i.availability != "unavailable"}
     chosen = set(body.item_ids)
     if not chosen.issubset(allowed):
@@ -233,6 +246,58 @@ def create_product(
     return product_json(p)
 
 
+@app.patch("/api/admin/products/{product_id}")
+def edit_product(product_id: int, body: ProductEdit, db: Session = Depends(get_db), ctx=Depends(admin_context)):
+    p = db.get(Product, product_id)
+    if not p:
+        raise HTTPException(404, "Product not found")
+
+    if body.name is not None:
+        name = body.name.strip()
+        if not name:
+            raise HTTPException(400, "Name cannot be empty")
+        p.name = name
+
+    if body.article is not None:
+        article = body.article.strip()
+        if not article:
+            raise HTTPException(400, "Article cannot be empty")
+        duplicate = db.scalar(select(Product).where(Product.article == article, Product.id != p.id))
+        if duplicate:
+            raise HTTPException(409, "Article already exists")
+        p.article = article
+
+    if body.price is not None:
+        if body.price <= 0:
+            raise HTTPException(400, "Price must be positive")
+        p.price = body.price
+
+    if body.category is not None:
+        category = body.category.strip()
+        if not category:
+            raise HTTPException(400, "Category cannot be empty")
+        p.category = category
+
+    if body.description is not None:
+        p.description = body.description.strip()
+
+    if body.colors is not None:
+        colors = [x.strip() for x in body.colors if x.strip()]
+        if not colors:
+            raise HTTPException(400, "At least one color is required")
+        p.colors = list(dict.fromkeys(colors))
+
+    if body.sizes is not None:
+        sizes = [x.strip() for x in body.sizes if x.strip()]
+        if not sizes:
+            raise HTTPException(400, "At least one size is required")
+        p.sizes = list(dict.fromkeys(sizes))
+
+    db.commit()
+    p = db.scalar(select(Product).options(selectinload(Product.media)).where(Product.id == p.id))
+    return product_json(p)
+
+
 @app.patch("/api/admin/products/{product_id}/status")
 def product_status(product_id: int, body: ProductStatusUpdate, db: Session = Depends(get_db), ctx=Depends(admin_context)):
     if body.status not in {"available", "hidden", "sold"}:
@@ -277,6 +342,12 @@ async def update_fitting(request_id: int, body: AdminFittingUpdate, db: Session 
                 raise HTTPException(400, "Check every item before confirming")
             if not any(i.availability == "available" for i in r.items):
                 raise HTTPException(400, "No available items")
+            confirmation_date = body.confirmed_date or r.requested_date
+            confirmation_time = body.confirmed_time or r.requested_time
+            if not _is_future(confirmation_date, confirmation_time):
+                raise HTTPException(400, "Confirmation date and time must be in the future")
+        if body.status == "completed" and r.status != "confirmed":
+            raise HTTPException(400, "Only a confirmed fitting can be completed")
         r.status = body.status
     if body.confirmed_date is not None: r.confirmed_date = body.confirmed_date
     if body.confirmed_time is not None: r.confirmed_time = body.confirmed_time
@@ -293,6 +364,8 @@ def confirm_sale(request_id: int, item_id: int, db: Session = Depends(get_db), c
     i = db.get(FittingItem, item_id)
     if not i or i.request_id != request_id:
         raise HTTPException(404, "Item not found")
+    if i.request.status != "completed":
+        raise HTTPException(400, "Complete the fitting before confirming a sale")
     if not i.purchased_claimed:
         raise HTTPException(400, "Client has not marked this item as purchased")
     i.sold_confirmed = True

@@ -17,6 +17,7 @@ class Settings(BaseSettings):
     debug_admin_username: str = "demo_admin"
     debug_admin_name: str = "Demo Admin"
     auth_max_age_seconds: int = 86400
+    app_timezone: str = "Europe/Moscow"
 
     storage_backend: str = "local"
     upload_dir: str = "./data/uploads"

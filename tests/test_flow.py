@@ -45,6 +45,23 @@ def test_full_mvp_flow():
     assert response.status_code == 200, response.text
     product_id = response.json()["id"]
 
+    response = client.patch(
+        f"/api/admin/products/{product_id}",
+        headers=ADMIN,
+        json={
+            "name": "Updated Jacket",
+            "article": "MB16-CI-002",
+            "price": 125000,
+            "category": "Одежда",
+            "colors": ["Black", "Beige"],
+            "sizes": ["48", "50"],
+            "description": "Updated CI smoke test",
+        },
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["article"] == "MB16-CI-002"
+    assert response.json()["price"] == 125000
+
     products = client.get("/api/products", headers=USER).json()
     assert len(products) == 1
 
@@ -82,6 +99,20 @@ def test_full_mvp_flow():
             "confirmed_time": "14:30:00",
             "admin_note": "Подтверждено",
         },
+    )
+    assert response.status_code == 200, response.text
+
+    response = client.post(
+        f"/api/fittings/{request_id}/purchases",
+        headers=USER,
+        json={"item_ids": [item_id]},
+    )
+    assert response.status_code == 400, response.text
+
+    response = client.patch(
+        f"/api/admin/fittings/{request_id}",
+        headers=ADMIN,
+        json={"status": "completed"},
     )
     assert response.status_code == 200, response.text
 

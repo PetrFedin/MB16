@@ -37,6 +37,7 @@ class ProductStatusUpdate(BaseModel):
 
 class ProductEdit(BaseModel):
     name: str | None = None
+    article: str | None = None
     description: str | None = None
     category: str | None = None
     price: Decimal | None = None
