@@ -17,14 +17,18 @@
 
 ---
 
-## Шаг 1. Создать PostgreSQL
+## Шаг 1. Создать приватную сеть и PostgreSQL
+
+Сначала создайте или выберите приватную сеть в нужном регионе. **PostgreSQL и App Platform должны быть созданы в одном регионе и подключены к этой сети.** Это позволит приложению обращаться к базе по приватному адресу без публикации PostgreSQL в интернет.
 
 В панели Timeweb Cloud:
 
 1. Откройте **Базы данных**.
 2. Создайте кластер PostgreSQL.
-3. Для небольшого MVP достаточно одной базы и одного пользователя; не нужно заранее усложнять кластер репликами.
-4. Сохраните:
+3. На шаге сети выберите подготовленную приватную сеть.
+4. Для этого MVP не включайте публичный IPv4 для базы, если не нужен внешний административный доступ.
+5. Для небольшого MVP достаточно одной базы и одного пользователя; не нужно заранее усложнять кластер репликами.
+6. Сохраните:
    - host;
    - port;
    - database;
@@ -76,21 +80,22 @@ S3_PUBLIC_BASE_URL=<публичный base URL бакета>
 1. Откройте **App Platform**.
 2. Создайте новое приложение.
 3. Подключите GitHub.
-4. Выберите репозиторий:
+4. Выберите тот же регион и **ту же приватную сеть**, что использует PostgreSQL. Важно: Timeweb предупреждает, что приватную сеть App Platform после деплоя изменить нельзя.
+5. Выберите репозиторий:
 
 ```text
 PetrFedin/MB16
 ```
 
-5. Ветка:
+6. Ветка:
 
 ```text
 main
 ```
 
-6. Тип деплоя — **Docker Compose**.
-7. Timeweb прочитает корневой `docker-compose.yml`.
-8. Можно включить автоматический деплой по новым коммитам `main`.
+7. Тип деплоя — **Docker Compose**.
+8. Timeweb прочитает корневой `docker-compose.yml`.
+9. Можно включить автоматический деплой по новым коммитам `main`.
 
 ---
 
@@ -144,7 +149,7 @@ Production preflight не даст контейнеру запуститься, 
 5. Docker `HEALTHCHECK` вызывает `/health`.
 6. `/health` выполняет `SELECT 1` в PostgreSQL, поэтому успешный healthcheck означает, что API действительно видит БД.
 
-После успешного деплоя получите технический HTTPS URL приложения.
+После успешного деплоя Timeweb выдаст бесплатный технический домен с HTTPS/SSL. Для первого MVP его достаточно — покупать и настраивать отдельный домен до проверки сценария не требуется.
 
 Проверьте вручную:
 
@@ -262,7 +267,7 @@ python -m scripts.configure_telegram
 
 ## Официальная документация
 
-- Timeweb App Platform / Docker Compose: `https://timeweb.cloud/docs/apps/deploying-with-docker-compose`
+- Timeweb App Platform / Docker Compose и приватная сеть: `https://timeweb.cloud/docs/apps/deploying-with-docker-compose`
 - Timeweb App Platform / переменные: `https://timeweb.cloud/docs/apps/variables`
 - Timeweb App Platform / healthcheck: `https://timeweb.cloud/docs/apps/healthcheck-path`
 - Timeweb PostgreSQL: `https://timeweb.cloud/docs/dbaas/postgresql`
