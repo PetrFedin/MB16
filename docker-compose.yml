@@ -1,0 +1,23 @@
+services:
+  app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    environment:
+      APP_NAME: ${APP_NAME:-MB16 Showroom}
+      APP_ENV: production
+      DATABASE_URL: ${DATABASE_URL}
+      TELEGRAM_BOT_TOKEN: ${TELEGRAM_BOT_TOKEN}
+      ADMIN_TELEGRAM_IDS: ${ADMIN_TELEGRAM_IDS}
+      AUTH_MAX_AGE_SECONDS: ${AUTH_MAX_AGE_SECONDS:-86400}
+      STORAGE_BACKEND: ${STORAGE_BACKEND:-s3}
+      S3_ENDPOINT_URL: ${S3_ENDPOINT_URL}
+      S3_ACCESS_KEY_ID: ${S3_ACCESS_KEY_ID}
+      S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
+      S3_BUCKET: ${S3_BUCKET}
+      S3_REGION: ${S3_REGION:-ru-1}
+      S3_PUBLIC_BASE_URL: ${S3_PUBLIC_BASE_URL}
+      MAX_IMAGE_MB: ${MAX_IMAGE_MB:-10}
+      MAX_VIDEO_MB: ${MAX_VIDEO_MB:-80}
+    ports:
+      - "8000:8000"
