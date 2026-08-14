@@ -13,6 +13,12 @@ jobs:
         with:
           python-version: "3.12"
           cache: pip
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
       - run: pip install -r requirements-dev.txt
-      - run: python -m compileall -q app
+      - run: python -m compileall -q app scripts
+      - run: APP_ENV=development python -m scripts.preflight
+      - run: node --check static/app.js
       - run: pytest -q
+      - run: docker build -t mb16-showroom-ci .
