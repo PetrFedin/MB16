@@ -13,11 +13,12 @@ It checks:
 3. JavaScript syntax with Node 22.
 4. The full API flow on SQLite.
 5. The same full API flow on PostgreSQL 16.
-6. Docker image build.
+6. A real Chromium browser flow through the client and admin UI.
+7. Docker image build.
 
 A branch is not considered verified merely because the files exist. Treat the automated layer as verified only when the GitHub Actions run for the branch/PR is green.
 
-## Automated E2E scenario
+## Automated API E2E scenario
 
 `tests/test_flow.py` covers the following path and guardrails:
 
@@ -45,7 +46,23 @@ A branch is not considered verified merely because the files exist. Treat the au
 - purchase history preserves the confirmed sale;
 - malformed or far-future Telegram `auth_date` values are rejected.
 
-## Manual browser check before production
+## Automated browser E2E scenario
+
+`tests/test_browser_e2e.py` launches Chromium with a mobile viewport and exercises the UI, not just API calls:
+
+1. Admin opens the admin section and creates a product with three photos.
+2. Client opens the product, selects color/size and adds it to the selection.
+3. Client submits a fitting request.
+4. Admin checks availability and confirms the fitting.
+5. Admin reschedules the confirmed fitting through **Save time**.
+6. Admin marks **Client arrived**.
+7. Client marks the item as purchased.
+8. Admin confirms the sale.
+9. Client sees the product removed from catalog/selection and preserved as a confirmed purchase.
+
+The browser test stubs only the external Telegram SDK script. All MB16 HTML, JavaScript, API calls, database writes and local media handling use the running application.
+
+## Optional local acceptance check
 
 Run locally:
 
@@ -59,17 +76,7 @@ Open:
 - client: `http://localhost:8000/?debug_user=1001`
 - admin: `http://localhost:8000/?debug_user=9001`
 
-Verify once in the browser:
-
-1. Admin creates a card with 3–5 photos and optional video.
-2. Client opens the card, changes color/size, and adds it to the selection.
-3. Client sends a fitting request.
-4. Admin marks item availability and confirms the date/time.
-5. Admin changes the confirmed time using **Save time** and sees the new value after reload.
-6. Admin marks **Client arrived**.
-7. Client marks purchased items.
-8. Admin confirms the sale.
-9. The sold product disappears from the catalog/selection and remains in client purchase history.
+This manual pass is useful for visual judgment on a real phone-sized window, but it is no longer the only UI validation layer because the core client/admin flow also runs automatically in Chromium CI.
 
 ## Production-only checks
 
