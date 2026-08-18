@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, time
 from decimal import Decimal
 from pathlib import Path
 from zoneinfo import ZoneInfo
@@ -101,17 +101,41 @@ def _local_now() -> datetime:
     return datetime.now(ZoneInfo(settings.app_timezone))
 
 
-def _is_future(local_date: date, local_time) -> bool:
+def _is_future(local_date: date, local_time: time) -> bool:
     current = _local_now()
     candidate = datetime.combine(local_date, local_time, tzinfo=current.tzinfo)
     return candidate > current
 
 
-def _confirmed_schedule(r: FittingRequest, body: AdminFittingUpdate) -> tuple[date, object]:
+def _confirmed_schedule(r: FittingRequest, body: AdminFittingUpdate) -> tuple[date, time]:
     return (
         body.confirmed_date or r.confirmed_date or r.requested_date,
         body.confirmed_time or r.confirmed_time or r.requested_time,
     )
+
+
+def _ensure_confirmable_items(db: Session, r: FittingRequest) -> None:
+    available_items = [i for i in r.items if i.availability == "available"]
+    if not available_items:
+        raise HTTPException(400, "No available items")
+    for i in available_items:
+        if i.product and i.product.status == "sold":
+            raise HTTPException(409, f"Product {i.article} is already sold")
+        if i.product_id is None:
+            continue
+        conflict = db.scalar(
+            select(FittingItem.id)
+            .join(FittingRequest)
+            .where(
+                FittingItem.product_id == i.product_id,
+                FittingItem.availability == "available",
+                FittingRequest.status == "confirmed",
+                FittingRequest.id != r.id,
+            )
+            .limit(1)
+        )
+        if conflict:
+            raise HTTPException(409, f"Product {i.article} is reserved in another confirmed fitting")
 
 
 @app.get("/", include_in_schema=False)
@@ -323,6 +347,13 @@ def product_status(product_id: int, body: ProductStatusUpdate, db: Session = Dep
     p = db.get(Product, product_id)
     if not p:
         raise HTTPException(404, "Product not found")
+    confirmed_sale = db.scalar(
+        select(FittingItem.id)
+        .where(FittingItem.product_id == p.id, FittingItem.sold_confirmed.is_(True))
+        .limit(1)
+    )
+    if confirmed_sale and body.status != "sold":
+        raise HTTPException(409, "A confirmed sale cannot be returned to the catalog")
     if body.status == "sold":
         confirmed = db.scalar(
             select(FittingItem.id)
@@ -362,7 +393,11 @@ def availability(request_id: int, item_id: int, body: AvailabilityUpdate, db: Se
 
 @app.patch("/api/admin/fittings/{request_id}")
 async def update_fitting(request_id: int, body: AdminFittingUpdate, db: Session = Depends(get_db), ctx=Depends(admin_context)):
-    r = db.scalar(select(FittingRequest).options(selectinload(FittingRequest.items), selectinload(FittingRequest.user)).where(FittingRequest.id == request_id))
+    r = db.scalar(
+        select(FittingRequest)
+        .options(selectinload(FittingRequest.items).selectinload(FittingItem.product), selectinload(FittingRequest.user))
+        .where(FittingRequest.id == request_id)
+    )
     if not r:
         raise HTTPException(404, "Fitting not found")
 
@@ -378,11 +413,9 @@ async def update_fitting(request_id: int, body: AdminFittingUpdate, db: Session 
             raise HTTPException(409, f"Cannot move fitting from {r.status} to {body.status}")
 
     if target_status == "confirmed" and (status_changed or has_schedule_update):
-        if status_changed:
-            if any(i.availability == "pending" for i in r.items):
-                raise HTTPException(400, "Check every item before confirming")
-            if not any(i.availability == "available" for i in r.items):
-                raise HTTPException(400, "No available items")
+        if status_changed and any(i.availability == "pending" for i in r.items):
+            raise HTTPException(400, "Check every item before confirming")
+        _ensure_confirmable_items(db, r)
         confirmation_date, confirmation_time = _confirmed_schedule(r, body)
         if not _is_future(confirmation_date, confirmation_time):
             raise HTTPException(400, "Confirmation date and time must be in the future")
