@@ -7,6 +7,20 @@ on:
 jobs:
   test:
     runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: showroom
+          POSTGRES_USER: showroom
+          POSTGRES_PASSWORD: showroom
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U showroom -d showroom"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
@@ -17,8 +31,91 @@ jobs:
         with:
           node-version: "22"
       - run: pip install -r requirements-dev.txt
-      - run: python -m compileall -q app scripts
+      - run: pip check
+      - run: python -m compileall -q app scripts migrations
       - run: APP_ENV=development python -m scripts.preflight
       - run: node --check static/app.js
-      - run: pytest -q
-      - run: docker build -t mb16-showroom-ci .
+
+      - name: Migrate PostgreSQL and check model drift
+        env:
+          DATABASE_URL: postgresql+psycopg://showroom:showroom@127.0.0.1:5432/showroom
+        run: |
+          alembic upgrade head
+          alembic check
+
+      - name: E2E on SQLite
+        run: |
+          rm -f /tmp/mb16-test.db
+          DATABASE_URL=sqlite:////tmp/mb16-test.db APP_ENV=development STORAGE_BACKEND=local UPLOAD_DIR=/tmp/mb16-test-uploads alembic upgrade head
+          TEST_DATABASE_URL=sqlite:////tmp/mb16-test.db pytest -q
+
+      - name: E2E on PostgreSQL 16
+        run: TEST_DATABASE_URL=postgresql+psycopg://showroom:showroom@127.0.0.1:5432/showroom pytest -q
+
+      - name: PostgreSQL concurrency and media rollback E2E
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://showroom:showroom@127.0.0.1:5432/showroom
+          RESILIENCE_E2E: "1"
+        run: pytest -q tests/test_postgres_resilience.py
+
+      - name: Install Chromium for browser E2E
+        run: python -m playwright install --with-deps chromium
+
+      - name: Browser E2E client-admin flow
+        run: |
+          rm -f /tmp/mb16-browser.db
+          rm -rf /tmp/mb16-browser-uploads
+          APP_ENV=development DATABASE_URL=sqlite:////tmp/mb16-browser.db STORAGE_BACKEND=local UPLOAD_DIR=/tmp/mb16-browser-uploads alembic upgrade head
+          APP_ENV=development DATABASE_URL=sqlite:////tmp/mb16-browser.db STORAGE_BACKEND=local UPLOAD_DIR=/tmp/mb16-browser-uploads uvicorn app.main:app --host 127.0.0.1 --port 8010 >/tmp/mb16-browser.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID >/dev/null 2>&1 || true' EXIT
+          READY=0
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8010/health >/dev/null; then
+              READY=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$READY" -ne 1 ]; then
+            cat /tmp/mb16-browser.log
+            exit 1
+          fi
+          if ! BROWSER_E2E_BASE_URL=http://127.0.0.1:8010 pytest -q tests/test_browser_e2e.py; then
+            cat /tmp/mb16-browser.log
+            exit 1
+          fi
+
+      - name: Build production Docker image
+        run: docker build -t mb16-showroom-ci .
+
+      - name: Production Docker runtime smoke
+        run: |
+          docker rm -f mb16-runtime >/dev/null 2>&1 || true
+          docker run -d --name mb16-runtime --network host \
+            -e APP_ENV=production \
+            -e DATABASE_URL=postgresql+psycopg://showroom:showroom@127.0.0.1:5432/showroom \
+            -e TELEGRAM_BOT_TOKEN=ci-test-token \
+            -e ADMIN_TELEGRAM_IDS=9001 \
+            -e STORAGE_BACKEND=local \
+            -e PORT=8020 \
+            mb16-showroom-ci
+          trap 'docker rm -f mb16-runtime >/dev/null 2>&1 || true' EXIT
+          READY=0
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8020/health >/dev/null; then
+              READY=1
+              break
+            fi
+            if ! docker ps --format '{{.Names}}' | grep -qx mb16-runtime; then
+              docker logs mb16-runtime || true
+              exit 1
+            fi
+            sleep 1
+          done
+          if [ "$READY" -ne 1 ]; then
+            docker logs mb16-runtime || true
+            exit 1
+          fi
+          test "$(docker inspect --format '{{.Config.User}}' mb16-runtime)" = "10001:10001"
+          test "$(docker exec mb16-runtime id -u)" = "10001"

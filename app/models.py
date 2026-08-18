@@ -81,6 +81,7 @@ class FittingRequest(Base):
     comment: Mapped[str] = mapped_column(Text, default="")
     admin_note: Mapped[str] = mapped_column(Text, default="")
     status: Mapped[str] = mapped_column(String(24), default="new", index=True)
+    purchase_reported: Mapped[bool] = mapped_column(Boolean, default=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow, onupdate=utcnow)
 

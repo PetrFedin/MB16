@@ -1,8 +1,11 @@
+import logging
+
 import httpx
 
 from .config import get_settings
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 async def send_telegram_message(chat_id: int, text: str) -> None:
@@ -11,9 +14,10 @@ async def send_telegram_message(chat_id: int, text: str) -> None:
     url = f"https://api.telegram.org/bot{settings.telegram_bot_token}/sendMessage"
     try:
         async with httpx.AsyncClient(timeout=8) as client:
-            await client.post(url, json={"chat_id": chat_id, "text": text})
+            response = await client.post(url, json={"chat_id": chat_id, "text": text})
+            response.raise_for_status()
     except httpx.HTTPError:
-        return
+        logger.exception("Telegram notification failed for chat_id=%s", chat_id)
 
 
 async def notify_admins(text: str) -> None:

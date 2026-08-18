@@ -1,0 +1,25 @@
+:root{
+  --mb-safe-top:max(env(safe-area-inset-top,0px),var(--tg-content-safe-area-inset-top,0px));
+  --mb-safe-bottom:max(env(safe-area-inset-bottom,0px),var(--tg-content-safe-area-inset-bottom,0px));
+  --mb-safe-left:max(env(safe-area-inset-left,0px),var(--tg-content-safe-area-inset-left,0px));
+  --mb-safe-right:max(env(safe-area-inset-right,0px),var(--tg-content-safe-area-inset-right,0px));
+}
+body{padding-bottom:calc(88px + var(--mb-safe-bottom))}
+.topbar{
+  padding-top:calc(14px + var(--mb-safe-top));
+  padding-left:calc(16px + var(--mb-safe-left));
+  padding-right:calc(16px + var(--mb-safe-right));
+}
+main{
+  padding-left:calc(14px + var(--mb-safe-left));
+  padding-right:calc(14px + var(--mb-safe-right));
+}
+.bottom-nav{
+  bottom:max(10px,var(--mb-safe-bottom));
+  width:min(720px,calc(100% - 20px - var(--mb-safe-left) - var(--mb-safe-right)));
+}
+.modal-sheet{
+  padding-left:calc(14px + var(--mb-safe-left));
+  padding-right:calc(14px + var(--mb-safe-right));
+  padding-bottom:calc(18px + var(--mb-safe-bottom));
+}

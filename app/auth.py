@@ -7,6 +7,7 @@ from urllib.parse import parse_qsl
 
 from fastapi import Depends, Header, HTTPException, Request
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from .config import get_settings
@@ -34,8 +35,12 @@ def _validate_init_data(init_data: str) -> dict:
     if not received_hash:
         raise HTTPException(status_code=401, detail="Telegram initData has no hash")
 
-    auth_date = int(values.get("auth_date", "0") or 0)
-    if auth_date <= 0 or time.time() - auth_date > settings.auth_max_age_seconds:
+    try:
+        auth_date = int(values.get("auth_date", "0") or 0)
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail="Telegram initData has invalid auth_date") from exc
+    now = int(time.time())
+    if auth_date <= 0 or auth_date > now + 60 or now - auth_date > settings.auth_max_age_seconds:
         raise HTTPException(status_code=401, detail="Telegram initData is expired")
 
     data_check_string = "\n".join(f"{key}={values[key]}" for key in sorted(values))
@@ -109,28 +114,35 @@ def resolve_identity(init_data: str | None, debug_user: str | None) -> AuthIdent
 def get_or_create_user(db: Session, identity: AuthIdentity) -> User:
     user = db.scalar(select(User).where(User.telegram_id == identity.telegram_id))
     if user is None:
-        user = User(
+        candidate = User(
             telegram_id=identity.telegram_id,
             username=identity.username,
             first_name=identity.first_name,
             last_name=identity.last_name,
         )
-        db.add(user)
+        db.add(candidate)
+        try:
+            db.commit()
+            db.refresh(candidate)
+            user = candidate
+        except IntegrityError:
+            db.rollback()
+            user = db.scalar(select(User).where(User.telegram_id == identity.telegram_id))
+            if user is None:
+                raise
+
+    changed = False
+    for attr, value in (
+        ("username", identity.username),
+        ("first_name", identity.first_name),
+        ("last_name", identity.last_name),
+    ):
+        if getattr(user, attr) != value:
+            setattr(user, attr, value)
+            changed = True
+    if changed:
         db.commit()
         db.refresh(user)
-    else:
-        changed = False
-        for attr, value in (
-            ("username", identity.username),
-            ("first_name", identity.first_name),
-            ("last_name", identity.last_name),
-        ):
-            if getattr(user, attr) != value:
-                setattr(user, attr, value)
-                changed = True
-        if changed:
-            db.commit()
-            db.refresh(user)
     return user
 
 
