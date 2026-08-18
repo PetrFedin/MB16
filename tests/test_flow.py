@@ -1,9 +1,13 @@
 import base64
+import hashlib
+import hmac
+import json
 import os
 import sys
 import time
 from datetime import date, timedelta
 from pathlib import Path
+from urllib.parse import urlencode
 
 import pytest
 from fastapi import HTTPException
@@ -35,6 +39,7 @@ USER2 = {"X-Debug-User-Id": "1002"}
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII="
 )
+VIDEO = b"mb16-browser-test-video"
 
 
 def product_payload(article: str = "MB16-CI-001") -> dict[str, str]:
@@ -53,9 +58,32 @@ def image_files(count: int = 3):
     return [("images", (f"{i}.png", PNG, "image/png")) for i in range(count)]
 
 
+def product_files(with_video: bool = False):
+    files = image_files()
+    if with_video:
+        files.append(("video", ("clip.mp4", VIDEO, "video/mp4")))
+    return files
+
+
 def admin_request(request_id: int) -> dict:
     requests = client.get("/api/admin/fittings", headers=ADMIN).json()
     return next(r for r in requests if r["id"] == request_id)
+
+
+def signed_init_data(token: str, user_id: int, auth_date: int | None = None) -> str:
+    values = {
+        "auth_date": str(auth_date if auth_date is not None else int(time.time())),
+        "query_id": "AAE2E_MB16",
+        "user": json.dumps(
+            {"id": user_id, "first_name": "Telegram", "last_name": "User", "username": "mb16_e2e"},
+            separators=(",", ":"),
+            ensure_ascii=False,
+        ),
+    }
+    data_check_string = "\n".join(f"{key}={values[key]}" for key in sorted(values))
+    secret_key = hmac.new(b"WebAppData", token.encode(), hashlib.sha256).digest()
+    values["hash"] = hmac.new(secret_key, data_check_string.encode(), hashlib.sha256).hexdigest()
+    return urlencode(values)
 
 
 def test_full_mvp_flow_and_guardrails():
@@ -69,13 +97,14 @@ def test_full_mvp_flow_and_guardrails():
     data = product_payload()
     assert client.post("/api/admin/products", headers=ADMIN, data=data, files=image_files(2)).status_code == 400
 
-    response = client.post("/api/admin/products", headers=ADMIN, data=data, files=image_files())
+    response = client.post("/api/admin/products", headers=ADMIN, data=data, files=product_files(with_video=True))
     assert response.status_code == 200, response.text
     product = response.json()
     product_id = product["id"]
     assert product["colors"] == ["Black", "Beige"]
     assert product["sizes"] == ["48", "50"]
-    assert len(product["media"]) == 3
+    assert len(product["media"]) == 4
+    assert [m["type"] for m in product["media"]] == ["image", "image", "image", "video"]
 
     response = client.post("/api/admin/products", headers=ADMIN, data=data, files=image_files())
     assert response.status_code == 409, response.text
@@ -295,8 +324,16 @@ def test_full_mvp_flow_and_guardrails():
     ).status_code == 200
 
 
-def test_telegram_auth_rejects_bad_or_future_timestamps(monkeypatch):
-    monkeypatch.setattr(auth.settings, "telegram_bot_token", "test-token")
+def test_telegram_auth_signature_and_timestamp_guardrails(monkeypatch):
+    token = "test-token"
+    monkeypatch.setattr(auth.settings, "telegram_bot_token", token)
+
+    valid = signed_init_data(token, user_id=777001)
+    values = auth._validate_init_data(valid)
+    assert json.loads(values["user"])["id"] == 777001
+    identity = auth.resolve_identity(valid, None)
+    assert identity.telegram_id == 777001
+    assert identity.username == "mb16_e2e"
 
     with pytest.raises(HTTPException) as malformed:
         auth._validate_init_data("auth_date=not-a-number&hash=irrelevant")
@@ -306,3 +343,17 @@ def test_telegram_auth_rejects_bad_or_future_timestamps(monkeypatch):
     with pytest.raises(HTTPException) as future_error:
         auth._validate_init_data(f"auth_date={future}&hash=irrelevant")
     assert future_error.value.status_code == 401
+
+    expired = signed_init_data(
+        token,
+        user_id=777002,
+        auth_date=int(time.time()) - auth.settings.auth_max_age_seconds - 1,
+    )
+    with pytest.raises(HTTPException) as expired_error:
+        auth._validate_init_data(expired)
+    assert expired_error.value.status_code == 401
+
+    monkeypatch.setattr(auth.settings, "app_env", "production")
+    with pytest.raises(HTTPException) as debug_in_production:
+        auth.resolve_identity(None, "9001")
+    assert debug_in_production.value.status_code == 401
