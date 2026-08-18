@@ -31,6 +31,7 @@ jobs:
         with:
           node-version: "22"
       - run: pip install -r requirements-dev.txt
+      - run: pip check
       - run: python -m compileall -q app scripts migrations
       - run: APP_ENV=development python -m scripts.preflight
       - run: node --check static/app.js
@@ -85,4 +86,36 @@ jobs:
             exit 1
           fi
 
-      - run: docker build -t mb16-showroom-ci .
+      - name: Build production Docker image
+        run: docker build -t mb16-showroom-ci .
+
+      - name: Production Docker runtime smoke
+        run: |
+          docker rm -f mb16-runtime >/dev/null 2>&1 || true
+          docker run -d --name mb16-runtime --network host \
+            -e APP_ENV=production \
+            -e DATABASE_URL=postgresql+psycopg://showroom:showroom@127.0.0.1:5432/showroom \
+            -e TELEGRAM_BOT_TOKEN=ci-test-token \
+            -e ADMIN_TELEGRAM_IDS=9001 \
+            -e STORAGE_BACKEND=local \
+            -e PORT=8020 \
+            mb16-showroom-ci
+          trap 'docker rm -f mb16-runtime >/dev/null 2>&1 || true' EXIT
+          READY=0
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8020/health >/dev/null; then
+              READY=1
+              break
+            fi
+            if ! docker ps --format '{{.Names}}' | grep -qx mb16-runtime; then
+              docker logs mb16-runtime || true
+              exit 1
+            fi
+            sleep 1
+          done
+          if [ "$READY" -ne 1 ]; then
+            docker logs mb16-runtime || true
+            exit 1
+          fi
+          test "$(docker inspect --format '{{.Config.User}}' mb16-runtime)" = "10001:10001"
+          test "$(docker exec mb16-runtime id -u)" = "10001"
