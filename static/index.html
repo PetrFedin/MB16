@@ -7,6 +7,7 @@
   <title>MB16 Showroom</title>
   <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <link rel="stylesheet" href="/static/styles.css">
+  <link rel="stylesheet" href="/static/safe-area.css">
 </head>
 <body>
   <header class="topbar">
@@ -18,7 +19,7 @@
 
   <div class="modal hidden" id="modalBackdrop">
     <section class="modal-sheet" role="dialog" aria-modal="true">
-      <div class="modal-head"><div><div class="eyebrow" id="modalEyebrow"></div><h2 id="modalTitle"></h2></div><button class="close" id="modalClose" type="button">×</button></div>
+      <div class="modal-head"><div><div class="eyebrow" id="modalEyebrow"></div><h2 id="modalTitle"></h2></div><button class="close" id="modalClose" type="button" aria-label="Закрыть">×</button></div>
       <div id="modalBody"></div>
     </section>
   </div>

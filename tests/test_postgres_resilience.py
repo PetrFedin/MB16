@@ -84,6 +84,26 @@ def create_fitting(client: TestClient, headers: dict[str, str], product_id: int,
     return request_id, item_id, fitting_date
 
 
+def test_concurrent_first_requests_create_one_user_without_500():
+    headers = {"X-Debug-User-Id": "2199"}
+    barrier = threading.Barrier(2)
+
+    def load_me() -> tuple[int, int | None]:
+        with TestClient(app) as local_client:
+            barrier.wait(timeout=10)
+            response = local_client.get("/api/me", headers=headers)
+            telegram_id = response.json().get("telegram_id") if response.status_code == 200 else None
+            return response.status_code, telegram_id
+
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        first = pool.submit(load_me)
+        second = pool.submit(load_me)
+        results = [first.result(timeout=20), second.result(timeout=20)]
+
+    assert [status for status, _ in results] == [200, 200]
+    assert [telegram_id for _, telegram_id in results] == [2199, 2199]
+
+
 def test_concurrent_confirmations_reserve_product_once():
     with TestClient(app) as setup_client:
         product_id = create_product(setup_client, "MB16-RACE-001")
