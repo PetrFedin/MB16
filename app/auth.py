@@ -34,8 +34,12 @@ def _validate_init_data(init_data: str) -> dict:
     if not received_hash:
         raise HTTPException(status_code=401, detail="Telegram initData has no hash")
 
-    auth_date = int(values.get("auth_date", "0") or 0)
-    if auth_date <= 0 or time.time() - auth_date > settings.auth_max_age_seconds:
+    try:
+        auth_date = int(values.get("auth_date", "0") or 0)
+    except ValueError as exc:
+        raise HTTPException(status_code=401, detail="Telegram initData has invalid auth_date") from exc
+    now = int(time.time())
+    if auth_date <= 0 or auth_date > now + 60 or now - auth_date > settings.auth_max_age_seconds:
         raise HTTPException(status_code=401, detail="Telegram initData is expired")
 
     data_check_string = "\n".join(f"{key}={values[key]}" for key in sorted(values))
