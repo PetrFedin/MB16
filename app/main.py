@@ -21,7 +21,7 @@ from .storage import save_upload
 from .telegram import notify_admins, send_telegram_message
 
 settings = get_settings()
-app = FastAPI(title=settings.app_name, version="0.2.0")
+app = FastAPI(title=settings.app_name, version="0.3.0")
 Base.metadata.create_all(bind=engine)
 settings.upload_path.mkdir(parents=True, exist_ok=True)
 
@@ -29,6 +29,14 @@ STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
 app.mount("/static", StaticFiles(directory=STATIC_DIR), name="static")
 if settings.storage_backend.lower() == "local":
     app.mount("/media", StaticFiles(directory=settings.upload_path), name="media")
+
+FITTING_TRANSITIONS = {
+    "new": {"confirmed", "declined", "cancelled"},
+    "confirmed": {"completed", "cancelled"},
+    "completed": set(),
+    "declined": set(),
+    "cancelled": set(),
+}
 
 
 def product_json(p: Product) -> dict:
@@ -97,6 +105,13 @@ def _is_future(local_date: date, local_time) -> bool:
     current = _local_now()
     candidate = datetime.combine(local_date, local_time, tzinfo=current.tzinfo)
     return candidate > current
+
+
+def _confirmed_schedule(r: FittingRequest, body: AdminFittingUpdate) -> tuple[date, object]:
+    return (
+        body.confirmed_date or r.confirmed_date or r.requested_date,
+        body.confirmed_time or r.confirmed_time or r.requested_time,
+    )
 
 
 @app.get("/", include_in_schema=False)
@@ -189,12 +204,15 @@ async def claim_purchases(request_id: int, body: PurchaseClaim, db: Session = De
         raise HTTPException(404, "Fitting not found")
     if r.status != "completed":
         raise HTTPException(400, "Purchases can be marked after the visit is completed")
-    allowed = {i.id for i in r.items if i.availability != "unavailable"}
+    allowed = {i.id for i in r.items if i.availability == "available"}
+    locked = {i.id for i in r.items if i.sold_confirmed}
     chosen = set(body.item_ids)
     if not chosen.issubset(allowed):
         raise HTTPException(400, "Invalid purchase items")
+    if not locked.issubset(chosen):
+        raise HTTPException(409, "A confirmed sale cannot be removed from purchase history")
     for i in r.items:
-        i.purchased_claimed = i.id in chosen
+        i.purchased_claimed = i.id in chosen or i.sold_confirmed
     db.commit()
     if chosen:
         await notify_admins(f"Клиент отметил покупки по примерке #{r.id}: {len(chosen)} шт.")
@@ -230,8 +248,8 @@ def create_product(
     article = article.strip()
     if db.scalar(select(Product).where(Product.article == article)):
         raise HTTPException(409, "Article already exists")
-    color_list = [x.strip() for x in colors.split(",") if x.strip()]
-    size_list = [x.strip() for x in sizes.split(",") if x.strip()]
+    color_list = list(dict.fromkeys(x.strip() for x in colors.split(",") if x.strip()))
+    size_list = list(dict.fromkeys(x.strip() for x in sizes.split(",") if x.strip()))
     if not name.strip() or not article or price <= 0 or not color_list or not size_list:
         raise HTTPException(400, "Check required product fields")
     p = Product(name=name.strip(), article=article, price=price, colors=color_list, sizes=size_list,
@@ -305,6 +323,15 @@ def product_status(product_id: int, body: ProductStatusUpdate, db: Session = Dep
     p = db.get(Product, product_id)
     if not p:
         raise HTTPException(404, "Product not found")
+    if body.status == "sold":
+        confirmed = db.scalar(
+            select(FittingItem.id)
+            .join(FittingRequest)
+            .where(FittingItem.product_id == p.id, FittingRequest.status == "confirmed")
+            .limit(1)
+        )
+        if confirmed:
+            raise HTTPException(409, "Product is reserved in a confirmed fitting")
     p.status = body.status
     if body.status == "sold":
         db.query(SelectionItem).filter(SelectionItem.product_id == p.id).delete(synchronize_session=False)
@@ -325,6 +352,10 @@ def availability(request_id: int, item_id: int, body: AvailabilityUpdate, db: Se
     i = db.get(FittingItem, item_id)
     if not i or i.request_id != request_id:
         raise HTTPException(404, "Item not found")
+    if i.request.status != "new":
+        raise HTTPException(409, "Availability can only be changed while the fitting is new")
+    if i.product and i.product.status == "sold" and body.availability == "available":
+        raise HTTPException(409, "Sold product cannot be marked available")
     i.availability = body.availability; db.commit()
     return {"ok": True}
 
@@ -334,26 +365,40 @@ async def update_fitting(request_id: int, body: AdminFittingUpdate, db: Session 
     r = db.scalar(select(FittingRequest).options(selectinload(FittingRequest.items), selectinload(FittingRequest.user)).where(FittingRequest.id == request_id))
     if not r:
         raise HTTPException(404, "Fitting not found")
-    if body.status is not None:
-        if body.status not in {"new", "confirmed", "completed", "declined", "cancelled"}:
+
+    status_changed = body.status is not None and body.status != r.status
+    target_status = body.status or r.status
+    has_schedule_update = body.confirmed_date is not None or body.confirmed_time is not None
+    notify_confirmation = False
+
+    if status_changed:
+        if body.status not in FITTING_TRANSITIONS:
             raise HTTPException(400, "Invalid fitting status")
-        if body.status == "confirmed":
+        if body.status not in FITTING_TRANSITIONS.get(r.status, set()):
+            raise HTTPException(409, f"Cannot move fitting from {r.status} to {body.status}")
+
+    if target_status == "confirmed" and (status_changed or has_schedule_update):
+        if status_changed:
             if any(i.availability == "pending" for i in r.items):
                 raise HTTPException(400, "Check every item before confirming")
             if not any(i.availability == "available" for i in r.items):
                 raise HTTPException(400, "No available items")
-            confirmation_date = body.confirmed_date or r.requested_date
-            confirmation_time = body.confirmed_time or r.requested_time
-            if not _is_future(confirmation_date, confirmation_time):
-                raise HTTPException(400, "Confirmation date and time must be in the future")
-        if body.status == "completed" and r.status != "confirmed":
-            raise HTTPException(400, "Only a confirmed fitting can be completed")
+        confirmation_date, confirmation_time = _confirmed_schedule(r, body)
+        if not _is_future(confirmation_date, confirmation_time):
+            raise HTTPException(400, "Confirmation date and time must be in the future")
+        r.confirmed_date = confirmation_date
+        r.confirmed_time = confirmation_time
+        notify_confirmation = True
+    elif has_schedule_update:
+        raise HTTPException(409, "Schedule can only be changed for a confirmed fitting")
+
+    if status_changed:
         r.status = body.status
-    if body.confirmed_date is not None: r.confirmed_date = body.confirmed_date
-    if body.confirmed_time is not None: r.confirmed_time = body.confirmed_time
-    if body.admin_note is not None: r.admin_note = body.admin_note.strip()
+    if body.admin_note is not None:
+        r.admin_note = body.admin_note.strip()
     db.commit()
-    if r.status == "confirmed":
+
+    if notify_confirmation:
         d, t = r.confirmed_date or r.requested_date, r.confirmed_time or r.requested_time
         await send_telegram_message(r.user.telegram_id, f"Примерка #{r.id} подтверждена: {d.isoformat()} {t.strftime('%H:%M')}")
     return {"ok": True}
@@ -364,10 +409,23 @@ def confirm_sale(request_id: int, item_id: int, db: Session = Depends(get_db), c
     i = db.get(FittingItem, item_id)
     if not i or i.request_id != request_id:
         raise HTTPException(404, "Item not found")
+    if i.sold_confirmed:
+        return {"ok": True}
     if i.request.status != "completed":
         raise HTTPException(400, "Complete the fitting before confirming a sale")
     if not i.purchased_claimed:
         raise HTTPException(400, "Client has not marked this item as purchased")
+    if i.availability != "available":
+        raise HTTPException(409, "Only an available fitting item can be sold")
+    if i.product and i.product.status == "sold":
+        other_sale = db.scalar(
+            select(FittingItem.id)
+            .where(FittingItem.product_id == i.product.id, FittingItem.sold_confirmed.is_(True), FittingItem.id != i.id)
+            .limit(1)
+        )
+        if other_sale:
+            raise HTTPException(409, "Product was already sold in another fitting")
+        raise HTTPException(409, "Product is already marked sold")
     i.sold_confirmed = True
     if i.product:
         i.product.status = "sold"
