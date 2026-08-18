@@ -38,4 +38,29 @@ jobs:
         run: pytest -q
       - name: E2E on PostgreSQL 16
         run: TEST_DATABASE_URL=postgresql+psycopg://showroom:showroom@127.0.0.1:5432/showroom pytest -q
+      - name: Install Chromium for browser E2E
+        run: python -m playwright install --with-deps chromium
+      - name: Browser E2E client-admin flow
+        run: |
+          rm -f /tmp/mb16-browser.db
+          rm -rf /tmp/mb16-browser-uploads
+          APP_ENV=development DATABASE_URL=sqlite:////tmp/mb16-browser.db STORAGE_BACKEND=local UPLOAD_DIR=/tmp/mb16-browser-uploads uvicorn app.main:app --host 127.0.0.1 --port 8010 >/tmp/mb16-browser.log 2>&1 &
+          SERVER_PID=$!
+          trap 'kill $SERVER_PID >/dev/null 2>&1 || true' EXIT
+          READY=0
+          for i in {1..30}; do
+            if curl --fail --silent http://127.0.0.1:8010/health >/dev/null; then
+              READY=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$READY" -ne 1 ]; then
+            cat /tmp/mb16-browser.log
+            exit 1
+          fi
+          if ! BROWSER_E2E_BASE_URL=http://127.0.0.1:8010 pytest -q tests/test_browser_e2e.py; then
+            cat /tmp/mb16-browser.log
+            exit 1
+          fi
       - run: docker build -t mb16-showroom-ci .
