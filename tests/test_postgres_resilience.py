@@ -1,6 +1,7 @@
 import base64
 import os
 import shutil
+import sys
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, timedelta
@@ -15,6 +16,8 @@ DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "").strip()
 if not DATABASE_URL.startswith("postgresql"):
     pytest.skip("Resilience E2E requires PostgreSQL", allow_module_level=True)
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 UPLOAD_DIR = Path("/tmp/mb16-resilience-uploads")
 shutil.rmtree(UPLOAD_DIR, ignore_errors=True)
 os.environ["DATABASE_URL"] = DATABASE_URL
