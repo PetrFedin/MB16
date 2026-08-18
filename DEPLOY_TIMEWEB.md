@@ -1,126 +1,118 @@
-# MB16 — запуск на Timeweb Cloud
+# MB16 — production deploy на Timeweb Cloud
 
-Актуальный production-путь для MVP: **Timeweb App Platform + PostgreSQL DBaaS + S3**.
+Рекомендуемый контур MVP:
 
-Приложение уже подготовлено для этого сценария: в корне репозитория есть `docker-compose.yml`, Dockerfile, production preflight и встроенный Docker `HEALTHCHECK` на `/health`.
+```text
+GitHub: PetrFedin/MB16
+        |
+        v
+Timeweb App Platform
+   |            |
+   v            v
+PostgreSQL      S3/Object Storage
+        |
+        v
+Telegram Mini App
+```
 
-## Что понадобится до начала
+## 1. Что подготовить
 
-Подготовьте четыре вещи:
+Нужны:
 
-1. Telegram-бот и его `TELEGRAM_BOT_TOKEN`.
-2. Числовой Telegram ID администратора — для `ADMIN_TELEGRAM_IDS`.
+1. Telegram bot token.
+2. Числовой Telegram ID хотя бы одного администратора.
 3. PostgreSQL в Timeweb Cloud.
-4. S3-бакет в Timeweb Cloud для фото и видео.
+4. S3 bucket для фото/видео.
+5. App Platform, связанный с GitHub.
 
-Секреты **не добавлять в GitHub**. Они задаются только как переменные окружения Timeweb.
+Секреты не коммитятся в репозиторий.
 
----
+## 2. PostgreSQL
 
-## Шаг 1. Создать приватную сеть и PostgreSQL
+Создайте PostgreSQL и приложение в одном регионе/приватной сети, если используете private networking.
 
-Сначала создайте или выберите приватную сеть в нужном регионе. **PostgreSQL и App Platform должны быть созданы в одном регионе и подключены к этой сети.** Это позволит приложению обращаться к базе по приватному адресу без публикации PostgreSQL в интернет.
-
-В панели Timeweb Cloud:
-
-1. Откройте **Базы данных**.
-2. Создайте кластер PostgreSQL.
-3. На шаге сети выберите подготовленную приватную сеть.
-4. Для этого MVP не включайте публичный IPv4 для базы, если не нужен внешний административный доступ.
-5. Для небольшого MVP достаточно одной базы и одного пользователя; не нужно заранее усложнять кластер репликами.
-6. Сохраните:
-   - host;
-   - port;
-   - database;
-   - username;
-   - password.
-
-Timeweb для новых PostgreSQL использует TLS по умолчанию, поэтому production URL лучше формировать с `sslmode=require`:
+Production URL:
 
 ```env
 DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST:PORT/DBNAME?sslmode=require
 ```
 
-Если пароль содержит `@`, `:`, `/`, `#` или другие специальные символы URL, его нужно URL-encode.
+Если Timeweb выдаёт `postgresql://` или `postgres://`, `app/db.py` автоматически переключает схему на драйвер psycopg.
 
-Приложение само создаст свои таблицы при первом запуске. Для текущего MVP отдельная ручная SQL-инициализация не требуется.
+### Миграции
 
----
+Схема больше не создаётся через `Base.metadata.create_all()`.
 
-## Шаг 2. Создать S3 для фото и видео
-
-Создайте S3-хранилище и отдельный бакет, например:
+Источник истины — Alembic:
 
 ```text
-mb16-showroom
+alembic.ini
+migrations/
 ```
 
-Для текущей реализации изображения и видео должны быть доступны клиентскому Mini App по публичным URL, поэтому бакет/раздачу объектов нужно настроить на публичное чтение.
+Docker container перед Uvicorn выполняет:
 
-Переменные:
+```bash
+alembic upgrade head
+```
+
+Это означает:
+
+- первый deploy создаёт схему миграцией `0001_initial`;
+- следующие изменения схемы должны добавляться новыми migration revisions;
+- production-данные не должны требовать ручного `CREATE TABLE`.
+
+Для текущего MVP используйте один application replica во время первого migration/deploy. Масштабирование на несколько replicas имеет смысл только после появления реальной нагрузки и отдельного deployment migration step.
+
+## 3. S3
+
+Создайте bucket, например `mb16-showroom`, и настройте публичную выдачу объектов, чтобы Mini App мог отображать фото/видео.
 
 ```env
 STORAGE_BACKEND=s3
 S3_ENDPOINT_URL=https://s3.twcstorage.ru
-S3_ACCESS_KEY_ID=<access key>
-S3_SECRET_ACCESS_KEY=<secret key>
+S3_ACCESS_KEY_ID=...
+S3_SECRET_ACCESS_KEY=...
 S3_BUCKET=mb16-showroom
 S3_REGION=ru-1
-S3_PUBLIC_BASE_URL=<публичный base URL бакета>
+S3_PUBLIC_BASE_URL=<фактический public base URL>
 ```
 
-Не угадывайте `S3_PUBLIC_BASE_URL`: после создания бакета возьмите фактический публичный URL из настроек/панели и проверьте открытие тестового объекта в браузере.
+`S3_PUBLIC_BASE_URL` берите из реальной конфигурации bucket, не угадывайте.
 
----
+При ошибке создания карточки сервер делает best-effort cleanup уже загруженных объектов, чтобы не оставлять media-orphans.
 
-## Шаг 3. Создать приложение в App Platform
+## 4. App Platform
 
-В Timeweb Cloud:
-
-1. Откройте **App Platform**.
-2. Создайте новое приложение.
-3. Подключите GitHub.
-4. Выберите тот же регион и **ту же приватную сеть**, что использует PostgreSQL. Важно: Timeweb предупреждает, что приватную сеть App Platform после деплоя изменить нельзя.
-5. Выберите репозиторий:
+Подключите репозиторий:
 
 ```text
 PetrFedin/MB16
 ```
 
-6. Ветка:
+Production deploy должен идти из `main` после зелёного CI.
 
-```text
-main
-```
+Используйте корневой `docker-compose.yml` / `Dockerfile`.
 
-7. Тип деплоя — **Docker Compose**.
-8. Timeweb прочитает корневой `docker-compose.yml`.
-9. Можно включить автоматический деплой по новым коммитам `main`.
-
----
-
-## Шаг 4. Добавить production-переменные
-
-В настройках приложения добавьте:
+Минимальные variables:
 
 ```env
 APP_NAME=MB16 Showroom
 APP_ENV=production
 APP_TIMEZONE=Europe/Moscow
-
 DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST:PORT/DBNAME?sslmode=require
 
-TELEGRAM_BOT_TOKEN=<BotFather token>
-ADMIN_TELEGRAM_IDS=<numeric Telegram ID>
+TELEGRAM_BOT_TOKEN=...
+ADMIN_TELEGRAM_IDS=123456789
 AUTH_MAX_AGE_SECONDS=86400
 
 STORAGE_BACKEND=s3
 S3_ENDPOINT_URL=https://s3.twcstorage.ru
-S3_ACCESS_KEY_ID=<access key>
-S3_SECRET_ACCESS_KEY=<secret key>
+S3_ACCESS_KEY_ID=...
+S3_SECRET_ACCESS_KEY=...
 S3_BUCKET=mb16-showroom
 S3_REGION=ru-1
-S3_PUBLIC_BASE_URL=<public bucket base URL>
+S3_PUBLIC_BASE_URL=...
 
 MAX_IMAGE_MB=10
 MAX_VIDEO_MB=80
@@ -132,48 +124,26 @@ MAX_VIDEO_MB=80
 ADMIN_TELEGRAM_IDS=123456789,987654321
 ```
 
-Production preflight не даст контейнеру запуститься, если отсутствует PostgreSQL URL, Telegram token, admin ID или обязательные S3-переменные. Это специально — лучше явная ошибка на деплое, чем полуработающее приложение.
+## 5. Startup sequence
 
----
-
-## Шаг 5. Запустить deploy
-
-Запустите сборку.
-
-Что должно произойти:
-
-1. Timeweb получает код из `main`.
-2. Docker Compose собирает Dockerfile.
-3. `python -m scripts.preflight` проверяет production-конфигурацию.
-4. FastAPI стартует на порту `8000`.
-5. Docker `HEALTHCHECK` вызывает `/health`.
-6. `/health` выполняет `SELECT 1` в PostgreSQL, поэтому успешный healthcheck означает, что API действительно видит БД.
-
-После успешного деплоя Timeweb выдаст бесплатный технический домен с HTTPS/SSL. Для первого MVP его достаточно — покупать и настраивать отдельный домен до проверки сценария не требуется.
-
-Проверьте вручную:
+Контейнер запускается так:
 
 ```text
-https://<timeweb-url>/health
+preflight
+-> alembic upgrade head
+-> uvicorn
+-> Docker healthcheck /health
 ```
 
-Ожидается:
+`/health` выполняет `SELECT 1`, поэтому успешный ответ подтверждает доступ приложения к БД:
 
 ```json
 {"ok":true}
 ```
 
-Обычное открытие корневой страницы в браузере покажет интерфейс, но production API без Telegram `initData` не должен считать браузерного посетителя авторизованным. Полноценная проверка клиента выполняется внутри Telegram.
+## 6. Telegram Mini App
 
----
-
-## Шаг 6. Привязать Mini App к Telegram-боту
-
-Когда появился публичный HTTPS URL, есть два варианта.
-
-### Вариант A — готовый скрипт проекта
-
-На машине, где есть checkout репозитория:
+После получения HTTPS URL можно настроить menu button:
 
 ```bash
 TELEGRAM_BOT_TOKEN='...' \
@@ -181,98 +151,65 @@ PUBLIC_APP_URL='https://<timeweb-url>' \
 python -m scripts.configure_telegram
 ```
 
-Скрипт вызывает Bot API `setChatMenuButton` и делает кнопку меню бота **«Открыть шоурум»**.
+Production API принимает Telegram `initData`, проверяет подпись и срок действия. Debug user header при `APP_ENV=production` не даёт доступ.
 
-### Вариант B — BotFather
+## 7. Production acceptance
 
-Можно назначить Mini App URL через настройки бота в BotFather. Главное — использовать production HTTPS URL.
+Проверять двумя реальными Telegram-аккаунтами: admin и client.
 
----
+### Admin
 
-## Шаг 7. Проверка от имени администратора
+1. Открыть вкладку Admin.
+2. Создать карточку с 3–5 фото.
+3. Проверить optional video.
+4. Изменить основные поля карточки.
 
-Откройте бота с Telegram-аккаунта, ID которого находится в `ADMIN_TELEGRAM_IDS`.
+### Client
 
-Должна появиться вкладка **Админ**.
+1. Открыть карточку.
+2. Выбрать цвет/размер.
+3. Добавить в подборку.
+4. Создать запрос на примерку на будущую дату.
 
-Проверьте один товар:
+### Admin продолжение
 
-1. `+ Карточка`.
-2. Добавить 3–5 фото.
-3. Опционально видео.
-4. Название.
-5. Артикул.
-6. Цена.
-7. Категория.
-8. Цвета.
-9. Размеры.
-10. Опубликовать.
-11. Убедиться, что товар появился в каталоге.
-12. Открыть `Изменить` и проверить сохранение цены/описания/цветов/размеров.
+1. Проверить наличие каждой вещи.
+2. Подтвердить или перенести время.
+3. После визита нажать `Клиент пришёл`.
 
----
+### Client продолжение
 
-## Шаг 8. Проверка клиентского сценария
+1. Отметить купленные вещи.
 
-Используйте **другой Telegram-аккаунт**, который не является админом.
+### Admin завершение
 
-Пройдите весь сценарий:
+1. Подтвердить продажу.
+2. Убедиться, что товар исчез из активного каталога/подборок.
+3. Убедиться, что покупка остаётся в истории клиента.
 
-1. Открыть каталог.
-2. Открыть карточку.
-3. Выбрать цвет.
-4. Выбрать размер.
-5. Добавить в подборку.
-6. Открыть **Подборка**.
-7. Нажать **Примерить**.
-8. Выбрать будущую дату и время.
-9. Отправить запрос.
+## 8. Что уже проверяет CI до production
 
-После этого админ:
+GitHub Actions проверяет:
 
-1. Открывает **Админ → Запросы**.
-2. Для каждой вещи выбирает **Есть** или **Нет**.
-3. Проверяет/меняет дату и время.
-4. Нажимает **Подтвердить**.
+- Alembic migration на PostgreSQL 16;
+- отсутствие schema drift через `alembic check`;
+- API E2E на SQLite и PostgreSQL;
+- конкурентные подтверждения одной вещи на PostgreSQL;
+- rollback частично загруженных media;
+- Chromium mobile UI E2E;
+- Telegram initData validation;
+- Docker build.
 
-После реального визита:
+Подробно: `E2E_QA.md`.
 
-1. Админ нажимает **Клиент пришёл**.
-2. У клиента появляется **Отметить, что купил**.
-3. Клиент отмечает купленные позиции.
-4. Админ видит эти позиции и нажимает **Продано**.
-5. Проданный товар исчезает из каталога и активных подборок.
-6. Вещь остается в разделе клиента **Покупки**.
+## 9. Что нельзя подтвердить без реальных credentials
 
----
+До фактической настройки Timeweb/Telegram нельзя честно подтвердить:
 
-## Что считать готовым MVP
+- private network connectivity конкретной БД;
+- реальные S3 permissions/public URLs;
+- доставку Telegram notifications;
+- menu button production URL;
+- сохранность данных после конкретного Timeweb redeploy.
 
-Перед приглашением реальных клиентов должны одновременно выполняться все пункты:
-
-- GitHub Actions зеленый;
-- Timeweb deploy зеленый;
-- `/health` возвращает `{"ok":true}`;
-- 3–5 фото реально загружаются в S3 и открываются из Telegram;
-- Mini App открывается из меню Telegram-бота;
-- admin ID получает вкладку **Админ**;
-- обычный клиент вкладку **Админ** не получает;
-- полный тестовый цикл примерки и покупки проходит двумя реальными Telegram-аккаунтами;
-- проданный товар исчезает из каталога;
-- подтвержденная покупка остается в истории клиента.
-
-После этого MVP лучше **не расширять сразу**, а дать его нескольким реальным пользователям и исправлять только то, что мешает сценарию карточка → подборка → примерка → покупка.
-
----
-
-## Официальная документация
-
-- Timeweb App Platform / Docker Compose и приватная сеть: `https://timeweb.cloud/docs/apps/deploying-with-docker-compose`
-- Timeweb App Platform / переменные: `https://timeweb.cloud/docs/apps/variables`
-- Timeweb App Platform / healthcheck: `https://timeweb.cloud/docs/apps/healthcheck-path`
-- Timeweb PostgreSQL: `https://timeweb.cloud/docs/dbaas/postgresql`
-- Timeweb подключение к БД: `https://timeweb.cloud/docs/dbaas/dbaas-manage/connect-to-database`
-- Timeweb S3: `https://timeweb.cloud/docs/s3-storage`
-- Timeweb S3 endpoint / region: `https://timeweb.cloud/docs/s3-storage/tools/rclone`
-- Telegram Mini Apps: `https://core.telegram.org/bots/webapps`
-- Telegram Bot API / setChatMenuButton: `https://core.telegram.org/bots/api`
+Эти пункты являются последним production acceptance, а не задачей unit/CI тестов.

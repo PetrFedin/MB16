@@ -1,108 +1,145 @@
 # MB16 end-to-end QA
 
-This file defines what must be green before the MVP is treated as ready for a real Telegram/Timeweb launch.
+Этот файл фиксирует, что должно быть зелёным до реального запуска MB16 в Telegram/Timeweb.
 
-## Automated checks
+## Автоматические проверки
 
-GitHub Actions (`.github/workflows/ci.yml`) is configured to run on pushes and pull requests.
+GitHub Actions запускается на push и pull request и проверяет:
 
-It checks:
+1. Python compilation для `app/`, `scripts/`, `migrations/`.
+2. Development preflight.
+3. JavaScript syntax через Node 22.
+4. Alembic migration `upgrade head` на PostgreSQL 16.
+5. `alembic check`: модели SQLAlchemy не должны расходиться с миграциями.
+6. Полный API E2E на SQLite.
+7. Тот же API E2E на PostgreSQL 16.
+8. Отдельный PostgreSQL resilience E2E для конкурентных действий и отката медиа.
+9. Реальный Chromium browser E2E клиент + админ на мобильном viewport.
+10. Сборку production Docker image.
 
-1. Python bytecode compilation for `app/` and `scripts/`.
-2. Development preflight configuration.
-3. JavaScript syntax with Node 22.
-4. The full API flow on SQLite.
-5. The same full API flow on PostgreSQL 16.
-6. A real Chromium browser flow through the client and admin UI.
-7. Docker image build.
+Ветка считается проверенной только по зелёному GitHub Actions run на актуальном head commit.
 
-A branch is not considered verified merely because the files exist. Treat the automated layer as verified only when the GitHub Actions run for the branch/PR is green.
+## Основной API E2E
 
-## Automated API E2E scenario
+`tests/test_flow.py` проверяет:
 
-`tests/test_flow.py` covers the following path and guardrails:
+- `/` и `/health`;
+- разделение client/admin;
+- обязательные 3–5 фото;
+- optional video;
+- запрет дубликата артикула;
+- редактирование карточки;
+- нормализацию повторяющихся цветов/размеров;
+- неверный цвет/размер;
+- идемпотентное добавление в подборку;
+- запрет примерки в прошлом;
+- запрет подтверждения до проверки всех вещей;
+- неизменность наличия после подтверждения;
+- запрет ручной продажи зарезервированного товара;
+- допустимые переходы статусов примерки;
+- перенос подтверждённой примерки;
+- запрет второй подтверждённой примерки на тот же товар;
+- запрет отметки покупки до визита;
+- запрет отката completed-заявки;
+- идемпотентное подтверждение продажи;
+- невозможность удалить подтверждённую продажу из истории;
+- невозможность вернуть подтверждённую продажу в каталог;
+- исчезновение проданного товара из каталога и подборок;
+- сохранение покупки в истории;
+- валидную Telegram initData подпись;
+- malformed/future/expired `auth_date`;
+- отключение debug-входа в production.
 
-- application HTML and `/health` are reachable;
-- admin access is denied to a normal client;
-- a product requires 3–5 images;
-- duplicate article creation is rejected;
-- product editing works;
-- duplicate colors/sizes are normalized;
-- invalid color/size selection is rejected;
-- duplicate selection addition is idempotent;
-- a fitting cannot be requested in the past;
-- a fitting cannot be confirmed before every item is checked;
-- item availability cannot be changed after fitting confirmation;
-- a product reserved in a confirmed fitting cannot be manually marked sold;
-- invalid fitting status transitions are rejected;
-- a confirmed fitting can be rescheduled to a future time;
-- the same product cannot be confirmed in two fittings at once;
-- a client cannot mark purchases before the visit is completed;
-- a completed fitting cannot be rolled back to cancelled;
-- sale confirmation is idempotent;
-- a confirmed sale cannot be removed by the client from purchase history;
-- a confirmed sale cannot be returned to the catalog;
-- sold products disappear from active selections;
-- purchase history preserves the confirmed sale;
-- malformed or far-future Telegram `auth_date` values are rejected.
+## PostgreSQL resilience E2E
 
-## Automated browser E2E scenario
+`tests/test_postgres_resilience.py` запускается отдельным CI-шагом против PostgreSQL 16.
 
-`tests/test_browser_e2e.py` launches Chromium with a mobile viewport and exercises the UI, not just API calls:
+Он проверяет два сценария, которые последовательный smoke-test не ловит:
 
-1. Admin opens the admin section and creates a product with three photos.
-2. Client opens the product, selects color/size and adds it to the selection.
-3. Client submits a fitting request.
-4. Admin checks availability and confirms the fitting.
-5. Admin reschedules the confirmed fitting through **Save time**.
-6. Admin marks **Client arrived**.
-7. Client marks the item as purchased.
-8. Admin confirms the sale.
-9. Client sees the product removed from catalog/selection and preserved as a confirmed purchase.
+1. **Два параллельных подтверждения одной вещи.** Два запроса стартуют одновременно. Результат должен быть строго один `200` и один `409`; в базе остаётся ровно одна confirmed-примерка.
+2. **Частичный сбой загрузки медиа.** Если после сохранения первых файлов следующий файл невалиден, карточка не создаётся, транзакция откатывается, уже записанные локальные файлы удаляются.
 
-The browser test stubs only the external Telegram SDK script. All MB16 HTML, JavaScript, API calls, database writes and local media handling use the running application.
+Продуктовые и fitting-операции используют PostgreSQL row locks, чтобы серверные инварианты сохранялись не только при последовательных запросах.
 
-## Optional local acceptance check
+## Browser E2E
 
-Run locally:
+`tests/test_browser_e2e.py` запускает Chromium с мобильным viewport и проходит UI:
+
+1. Админ создаёт карточку с тремя фото.
+2. Клиент открывает товар, выбирает цвет/размер и добавляет его в подборку.
+3. Клиент отправляет запрос на примерку.
+4. Админ проверяет наличие и подтверждает.
+5. Админ переносит время через `Сохранить время`.
+6. Админ отмечает `Клиент пришёл`.
+7. Клиент отмечает купленную вещь.
+8. Админ подтверждает продажу.
+9. Клиент видит исчезновение товара из каталога/подборки и подтверждённую покупку в истории.
+
+В browser E2E подменяется только внешний Telegram SDK script. HTML/CSS/JS MB16, API, база и локальное media storage работают реально.
+
+## Миграции БД
+
+Схема больше не создаётся через `Base.metadata.create_all()` при импорте приложения.
+
+Источник истины: `migrations/` + Alembic. Production container перед Uvicorn выполняет:
+
+```bash
+alembic upgrade head
+```
+
+CI дополнительно выполняет:
+
+```bash
+alembic check
+```
+
+Любое изменение `models.py`, требующее изменения схемы, должно сопровождаться новой migration revision.
+
+## Проверка на MacBook
+
+После merge:
 
 ```bash
 make start-bg
 make health
+make status
 ```
 
-Open:
+Клиент:
 
-- client: `http://localhost:8000/?debug_user=1001`
-- admin: `http://localhost:8000/?debug_user=9001`
+```text
+http://localhost:8000/?debug_user=1001
+```
 
-This manual pass is useful for visual judgment on a real phone-sized window, but it is no longer the only UI validation layer because the core client/admin flow also runs automatically in Chromium CI.
+Админ:
 
-## Production-only checks
+```text
+http://localhost:8000/?debug_user=9001
+```
 
-These cannot be fully verified without the real external services and must be checked after Timeweb/Telegram configuration:
+Локальный Docker startup сам применяет Alembic migrations перед стартом API.
+
+## Что невозможно честно подтвердить без production-сервисов
 
 ### Telegram
 
-- real `Telegram.WebApp.initData` authentication succeeds;
-- invalid/expired initData is rejected;
-- admin Telegram IDs receive a new fitting notification;
-- the client receives fitting confirmation/reschedule notification;
-- the Mini App menu button opens the deployed HTTPS URL.
+- реальный `Telegram.WebApp.initData` от вашего бота;
+- фактическую доставку уведомлений админу и клиенту;
+- открытие Mini App через menu button по production HTTPS URL.
 
 ### Timeweb PostgreSQL
 
-- production `DATABASE_URL` connects over the intended private/public network;
-- `/health` returns `{"ok": true}` after restart;
-- data survives application container restarts.
+- реальный production connection string/private network;
+- сохранение данных после restart/redeploy на конкретной инфраструктуре.
 
-### S3/Object Storage
+### Timeweb S3
 
-- 3–5 images upload and render from the public S3 URL;
-- optional video uploads and plays;
-- oversize/unsupported files are rejected;
-- uploaded media remains available after application redeploy.
+- фактическую загрузку/публичную выдачу файлов из вашего bucket;
+- доступность фото/видео после redeploy;
+- права bucket и CORS/public read настройки.
 
-## Current MVP boundary
+Эти пункты проходят отдельный production acceptance после выдачи реальных credentials/URL. Секреты в GitHub не коммитятся.
 
-This QA scope intentionally does not validate online payment, quantitative SKU inventory, CRM, personal managers, AI styling, recommendations, conversion analytics, delivery, loyalty or promotions because those modules are not part of the current MB16 MVP.
+## Граница текущего MVP
+
+В этот QA намеренно не входят онлайн-оплата, количественный склад по SKU, CRM, персональные менеджеры, AI styling/recommendations, conversion analytics, доставка, loyalty и promotions: эти модули пока не входят в простой MB16 showroom flow.

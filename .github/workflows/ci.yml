@@ -31,19 +31,40 @@ jobs:
         with:
           node-version: "22"
       - run: pip install -r requirements-dev.txt
-      - run: python -m compileall -q app scripts
+      - run: python -m compileall -q app scripts migrations
       - run: APP_ENV=development python -m scripts.preflight
       - run: node --check static/app.js
+
+      - name: Migrate PostgreSQL and check model drift
+        env:
+          DATABASE_URL: postgresql+psycopg://showroom:showroom@127.0.0.1:5432/showroom
+        run: |
+          alembic upgrade head
+          alembic check
+
       - name: E2E on SQLite
-        run: pytest -q
+        run: |
+          rm -f /tmp/mb16-test.db
+          DATABASE_URL=sqlite:////tmp/mb16-test.db APP_ENV=development STORAGE_BACKEND=local UPLOAD_DIR=/tmp/mb16-test-uploads alembic upgrade head
+          TEST_DATABASE_URL=sqlite:////tmp/mb16-test.db pytest -q
+
       - name: E2E on PostgreSQL 16
         run: TEST_DATABASE_URL=postgresql+psycopg://showroom:showroom@127.0.0.1:5432/showroom pytest -q
+
+      - name: PostgreSQL concurrency and media rollback E2E
+        env:
+          TEST_DATABASE_URL: postgresql+psycopg://showroom:showroom@127.0.0.1:5432/showroom
+          RESILIENCE_E2E: "1"
+        run: pytest -q tests/test_postgres_resilience.py
+
       - name: Install Chromium for browser E2E
         run: python -m playwright install --with-deps chromium
+
       - name: Browser E2E client-admin flow
         run: |
           rm -f /tmp/mb16-browser.db
           rm -rf /tmp/mb16-browser-uploads
+          APP_ENV=development DATABASE_URL=sqlite:////tmp/mb16-browser.db STORAGE_BACKEND=local UPLOAD_DIR=/tmp/mb16-browser-uploads alembic upgrade head
           APP_ENV=development DATABASE_URL=sqlite:////tmp/mb16-browser.db STORAGE_BACKEND=local UPLOAD_DIR=/tmp/mb16-browser-uploads uvicorn app.main:app --host 127.0.0.1 --port 8010 >/tmp/mb16-browser.log 2>&1 &
           SERVER_PID=$!
           trap 'kill $SERVER_PID >/dev/null 2>&1 || true' EXIT
@@ -63,4 +84,5 @@ jobs:
             cat /tmp/mb16-browser.log
             exit 1
           fi
+
       - run: docker build -t mb16-showroom-ci .

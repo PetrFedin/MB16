@@ -1,35 +1,45 @@
 # MB16 Showroom — Telegram Mini App MVP
 
-Минимальный showroom внутри Telegram: карточки товаров, подборка на примерку, согласование визита и история покупок.
+Простой showroom внутри Telegram: карточки товаров, подборка на примерку, согласование визита и история покупок.
 
-## Что есть сейчас
+## Текущий функционал
 
 ### Клиент
 - каталог только доступных товаров;
-- карточка с 3–5 фото, опциональным видео, названием, артикулом, категорией, ценой, цветами и размерами;
-- выбор конкретного цвета и размера;
-- одна простая подборка «Подборка»;
-- запрос на примерку с датой, временем и комментарием;
-- список своих примерок и их статусов;
-- после фактического визита (админ нажал «Клиент пришёл») клиент отмечает, какие вещи купил;
-- отдельный экран «Покупки» в личном кабинете.
+- карточка: 3–5 фото, optional video, название, описание, артикул, категория, цена, цвета, размеры;
+- выбор цвета и размера;
+- одна подборка;
+- запрос даты/времени примерки;
+- история своих примерок;
+- после статуса `Клиент пришёл` — отметка купленных вещей;
+- история покупок с признаком подтверждения продажи.
 
 ### Администратор
-- отдельная вкладка «Админ» только для Telegram ID из `ADMIN_TELEGRAM_IDS`;
-- создание и немедленная публикация карточки;
-- редактирование названия, артикула, цены, категории, цветов, размеров и информации;
-- предпросмотр выбранных фото до публикации;
-- статусы товара: `available`, `hidden`, `sold`;
-- просмотр всех запросов на примерку;
-- ручная проверка наличия каждой выбранной вещи: «Есть / Нет»;
-- подтверждение или изменение даты и времени;
-- завершение/отклонение заявки;
-- подтверждение покупки клиента кнопкой «Продано»;
-- после подтверждения продажи товар исчезает из каталога и активных подборок, но остается в истории покупки.
+- доступ только Telegram ID из `ADMIN_TELEGRAM_IDS`;
+- создание и публикация карточки;
+- редактирование основных полей;
+- предпросмотр фото;
+- статусы товара `available / hidden / sold`;
+- просмотр заявок;
+- ручная проверка наличия каждой вещи;
+- подтверждение/перенос времени;
+- статусы заявки `new / confirmed / completed / declined / cancelled`;
+- подтверждение продажи.
 
-## Принцип MVP
+## Ключевые серверные гарантии
 
-Здесь намеренно нет оплаты, CRM, автоматических остатков, рекомендаций, AI, сложных ролей и аналитики. Их можно добавить позже, не меняя основной клиентский сценарий.
+Текущая версия защищает бизнес-flow не только интерфейсом, но и API/БД:
+
+- проданный товар нельзя вернуть в каталог после подтверждённой продажи;
+- товар из confirmed-примерки нельзя вручную отметить проданным;
+- одна вещь не может одновременно оказаться в двух confirmed-примерках;
+- конкурентные подтверждения сериализуются через PostgreSQL row locks;
+- наличие нельзя менять после подтверждения заявки;
+- completed-заявку нельзя откатить назад;
+- подтверждённую продажу клиент не может удалить из истории;
+- повторное подтверждение продажи идемпотентно;
+- повторное добавление одного варианта в подборку не создаёт дубль;
+- частично загруженные медиа удаляются при ошибке создания карточки.
 
 ## Архитектура
 
@@ -37,153 +47,184 @@
 Telegram Mini App
       |
       v
-FastAPI (HTML/CSS/JS + API)
+FastAPI (UI + API)
       |
       +--> PostgreSQL
       |
-      +--> Local media (Docker/VPS) OR S3-compatible storage (Timeweb App Platform)
+      +--> Alembic migrations
       |
-      +--> Telegram Bot API (опциональные уведомления)
+      +--> Local media (dev/VPS) or S3-compatible storage
+      |
+      +--> Telegram Bot API notifications
 ```
 
-Frontend специально не вынесен в отдельную сборку: FastAPI отдает и интерфейс, и API. Для MVP это уменьшает количество сервисов и упрощает Docker/Timeweb deployment.
+Frontend намеренно остаётся без отдельного build-system: FastAPI отдаёт `static/index.html`, CSS и JS. Для текущего MVP это уменьшает количество сервисов и точек отказа.
 
-## Локальный запуск через Docker
+## База данных и миграции
 
-1. Создайте `.env`:
+Схема БД управляется Alembic. Приложение больше не создаёт таблицы через `Base.metadata.create_all()` при импорте.
+
+Production container выполняет перед запуском API:
 
 ```bash
-cp .env.example .env
+python -m scripts.preflight
+alembic upgrade head
+uvicorn app.main:app ...
 ```
 
-2. Для локальной проверки можно оставить debug-пользователей:
-- клиент: `1001`
-- админ: `9001`
+CI дополнительно запускает `alembic check`, чтобы изменения моделей без migration revision не прошли незаметно.
 
-3. Запуск:
+При изменении `app/models.py` необходимо создать и проверить новую Alembic migration.
+
+## Локальный запуск на MacBook
+
+Требуется Docker Desktop.
 
 ```bash
-docker compose -f docker-compose.local.yml up --build
+git clone https://github.com/PetrFedin/MB16.git
+cd MB16
+git checkout main
+make start-bg
+make health
 ```
 
-4. Откройте:
+После старта:
 
 - клиент: `http://localhost:8000/?debug_user=1001`
 - админ: `http://localhost:8000/?debug_user=9001`
 - API docs: `http://localhost:8000/docs`
 - health: `http://localhost:8000/health`
 
-Debug-вход отключается автоматически при `APP_ENV=production`.
-
-## Настройка Telegram
-
-Для реального запуска нужны:
-
-```env
-APP_ENV=production
-TELEGRAM_BOT_TOKEN=<token BotFather>
-ADMIN_TELEGRAM_IDS=<ваш числовой Telegram ID>
-APP_TIMEZONE=Europe/Moscow
-```
-
-Backend принимает `Telegram.WebApp.initData` и проверяет подпись на сервере перед использованием Telegram user data.
-
-После деплоя можно привязать HTTPS URL к кнопке меню бота автоматически:
+Полезные команды:
 
 ```bash
-TELEGRAM_BOT_TOKEN=... PUBLIC_APP_URL=https://your-app.example python -m scripts.configure_telegram
+make status
+make logs
+make stop
+make test
 ```
 
-Скрипт использует Telegram Bot API `setChatMenuButton`. Отдельный обработчик сообщений бота для MVP не нужен.
+`make start-bg` создаёт `.env` из `.env.example`, если его ещё нет. Docker startup применяет migrations автоматически.
 
-## Timeweb Cloud App Platform
+Debug-вход отключён при `APP_ENV=production`.
 
-В корне уже находится `docker-compose.yml`, подготовленный для App Platform. Он не использует Docker volumes.
+## Telegram production auth
 
-Для production на App Platform нужны:
+Backend принимает `Telegram.WebApp.initData` и проверяет HMAC-подпись и `auth_date` на сервере. Debug header в production игнорируется.
 
-1. Timeweb PostgreSQL (или другой внешний PostgreSQL).
-2. Публичный S3 bucket для фото/видео.
-3. Переменные окружения в App Platform.
-
-Минимальный набор:
+Для production нужны:
 
 ```env
-APP_NAME=MB16 Showroom
 APP_ENV=production
-APP_TIMEZONE=Europe/Moscow
-DATABASE_URL=postgresql+psycopg://USER:PASSWORD@HOST:PORT/DBNAME
 TELEGRAM_BOT_TOKEN=...
 ADMIN_TELEGRAM_IDS=123456789
-STORAGE_BACKEND=s3
-S3_ENDPOINT_URL=https://s3.twcstorage.ru
-S3_ACCESS_KEY_ID=...
-S3_SECRET_ACCESS_KEY=...
-S3_BUCKET=...
-S3_REGION=ru-1
-S3_PUBLIC_BASE_URL=https://s3.twcstorage.ru/BUCKET_NAME
+APP_TIMEZONE=Europe/Moscow
 ```
 
-Если Timeweb выдает `DATABASE_URL` со схемой `postgresql://` или `postgres://`, приложение автоматически переключит её на драйвер `psycopg`.
+После получения production HTTPS URL кнопку Mini App можно настроить:
 
-Подробно: `DEPLOY_TIMEWEB.md`.
+```bash
+TELEGRAM_BOT_TOKEN='...' \
+PUBLIC_APP_URL='https://your-app.example' \
+python -m scripts.configure_telegram
+```
 
-## Production preflight
+## Timeweb Cloud
 
-Перед запуском контейнер выполняет `python -m scripts.preflight`. В production он не стартует, если не настроены PostgreSQL, токен Telegram, хотя бы один admin Telegram ID или обязательные S3-переменные.
+Рекомендуемый production-контур:
 
-## Если это обычный Timeweb VPS с Docker
+```text
+Timeweb App Platform
+  + PostgreSQL DBaaS
+  + S3/Object Storage
+  + HTTPS URL
+```
 
-Можно использовать `docker-compose.local.yml` и заменить значения `.env` на production. Тогда PostgreSQL и медиа будут жить в Docker volumes на сервере. Для самого быстрого частного MVP это допустимый вариант, но для App Platform используется внешний PostgreSQL + S3.
+Production variables включают `DATABASE_URL`, Telegram token/admin IDs и S3 credentials. Секреты не хранятся в GitHub.
 
-## Основные API
+Подробный порядок: `DEPLOY_TIMEWEB.md`.
 
-### Клиент
-- `GET /api/products`
-- `GET /api/selection`
-- `POST /api/selection`
-- `DELETE /api/selection/{item_id}`
-- `POST /api/fittings`
-- `GET /api/fittings/my`
-- `POST /api/fittings/{id}/purchases`
-- `GET /api/purchases/my`
+## Проверка end-to-end
 
-### Администратор
-- `GET /api/admin/products`
-- `POST /api/admin/products`
-- `PATCH /api/admin/products/{id}`
-- `PATCH /api/admin/products/{id}/status`
-- `GET /api/admin/fittings`
-- `PATCH /api/admin/fittings/{id}/items/{item_id}`
-- `PATCH /api/admin/fittings/{id}`
-- `POST /api/admin/fittings/{id}/items/{item_id}/confirm-sale`
+GitHub Actions проверяет:
+
+- Python compile;
+- configuration preflight;
+- JS syntax;
+- Alembic upgrade + model drift;
+- API E2E на SQLite;
+- API E2E на PostgreSQL 16;
+- параллельное подтверждение одной вещи в PostgreSQL;
+- rollback файлов при частичной ошибке media upload;
+- Chromium mobile browser flow клиент + админ;
+- Docker build.
+
+Полная матрица: `E2E_QA.md`.
+
+Основной автоматизированный UI-flow:
+
+```text
+admin creates product
+-> client chooses color/size
+-> selection
+-> fitting request
+-> admin availability check
+-> confirmation
+-> reschedule
+-> client arrived
+-> client marks purchase
+-> admin confirms sale
+-> product removed from catalog/selection
+-> purchase preserved in history
+```
 
 ## Структура
 
 ```text
 app/
-  auth.py       Telegram auth + admin access
-  config.py     environment configuration
-  db.py         SQLAlchemy connection
-  main.py       API and application routes
-  models.py     data model
-  schemas.py    request schemas
-  storage.py    local/S3 media adapter
-  telegram.py   optional bot notifications
-scripts/
-  preflight.py            production environment validation
-  configure_telegram.py   bot menu / Mini App URL setup
+  auth.py
+  config.py
+  db.py
+  main.py
+  models.py
+  schemas.py
+  storage.py
+  telegram.py
+migrations/
+  env.py
+  versions/
 static/
   index.html
   styles.css
   app.js
+scripts/
+  preflight.py
+  configure_telegram.py
+tests/
+  test_flow.py
+  test_browser_e2e.py
+  test_postgres_resilience.py
+alembic.ini
 Dockerfile
-docker-compose.yml          Timeweb App Platform / production
-docker-compose.local.yml    local/VPS full stack
+docker-compose.local.yml
+docker-compose.yml
+Makefile
+E2E_QA.md
+DEPLOY_TIMEWEB.md
 ```
 
-## Проверка
+## Граница MVP
 
-На текущей версии пройден end-to-end smoke test:
+Пока намеренно не включены:
 
-`создание карточки -> редактирование карточки -> каталог -> подборка -> запрос -> проверка наличия -> подтверждение -> клиент пришёл -> клиент отметил покупку -> админ подтвердил продажу -> товар скрыт -> покупка сохранена`.
+- онлайн-оплата;
+- количественные остатки по SKU;
+- CRM;
+- персональный менеджер;
+- AI-рекомендации/подбор образов;
+- conversion analytics;
+- loyalty/promocodes;
+- доставка;
+- multi-showroom.
+
+Эти модули должны подключаться позже, после проверки базового сценария реальными пользователями, а не усложнять первый запуск.

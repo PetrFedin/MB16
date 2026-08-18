@@ -2,8 +2,9 @@ SHELL := /bin/bash
 COMPOSE := docker compose -f docker-compose.local.yml
 PYTHON := .venv/bin/python
 PIP := .venv/bin/pip
+TEST_DB := sqlite:////tmp/mb16-test.db
 
-.PHONY: setup start start-bg stop logs status health test clean-test
+.PHONY: setup start start-bg stop logs status health migrate migration-check test clean-test
 
 setup:
 	@test -f .env || (cp .env.example .env && echo "Created .env from .env.example")
@@ -34,11 +35,19 @@ $(PYTHON):
 	$(PIP) install --upgrade pip
 	$(PIP) install -r requirements-dev.txt
 
+migrate: $(PYTHON)
+	$(PYTHON) -m alembic upgrade head
+
+migration-check: $(PYTHON)
+	$(PYTHON) -m alembic check
+
 test: $(PYTHON)
-	$(PYTHON) -m compileall -q app scripts
+	$(PYTHON) -m compileall -q app scripts migrations
 	APP_ENV=development $(PYTHON) -m scripts.preflight
 	@if command -v node >/dev/null 2>&1; then node --check static/app.js; else echo "node not installed: JS syntax check skipped locally (CI still checks it)"; fi
-	$(PYTHON) -m pytest -q
+	rm -f /tmp/mb16-test.db
+	DATABASE_URL=$(TEST_DB) APP_ENV=development STORAGE_BACKEND=local UPLOAD_DIR=/tmp/mb16-test-uploads $(PYTHON) -m alembic upgrade head
+	TEST_DATABASE_URL=$(TEST_DB) $(PYTHON) -m pytest -q
 
 clean-test:
-	rm -rf .venv /tmp/mb16-test.db /tmp/mb16-test-uploads
+	rm -rf .venv /tmp/mb16-test.db /tmp/mb16-test-uploads /tmp/mb16-browser.db /tmp/mb16-browser-uploads /tmp/mb16-resilience-uploads

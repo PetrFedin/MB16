@@ -3,26 +3,26 @@ from __future__ import annotations
 from datetime import date, datetime, time
 from decimal import Decimal
 from pathlib import Path
-from zoneinfo import ZoneInfo
 from typing import Annotated
+from zoneinfo import ZoneInfo
 
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from sqlalchemy import desc, select, text
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from .auth import admin_context, current_context
 from .config import get_settings
-from .db import Base, SessionLocal, engine, get_db
+from .db import SessionLocal, get_db
 from .models import FittingItem, FittingRequest, Product, ProductMedia, SelectionItem
 from .schemas import AdminFittingUpdate, AvailabilityUpdate, FittingCreate, ProductEdit, ProductStatusUpdate, PurchaseClaim, SelectionCreate
-from .storage import save_upload
+from .storage import delete_upload, save_upload
 from .telegram import notify_admins, send_telegram_message
 
 settings = get_settings()
-app = FastAPI(title=settings.app_name, version="0.3.0")
-Base.metadata.create_all(bind=engine)
+app = FastAPI(title=settings.app_name, version="0.4.0")
 settings.upload_path.mkdir(parents=True, exist_ok=True)
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -114,12 +114,25 @@ def _confirmed_schedule(r: FittingRequest, body: AdminFittingUpdate) -> tuple[da
     )
 
 
+def _lock_products(db: Session, product_ids) -> dict[int, Product]:
+    ids = sorted({int(product_id) for product_id in product_ids if product_id is not None})
+    if not ids:
+        return {}
+    products = db.scalars(
+        select(Product).where(Product.id.in_(ids)).order_by(Product.id).with_for_update()
+    ).all()
+    return {p.id: p for p in products}
+
+
 def _ensure_confirmable_items(db: Session, r: FittingRequest) -> None:
     available_items = [i for i in r.items if i.availability == "available"]
     if not available_items:
         raise HTTPException(400, "No available items")
+
+    locked_products = _lock_products(db, (i.product_id for i in available_items))
     for i in available_items:
-        if i.product and i.product.status == "sold":
+        product = locked_products.get(i.product_id) if i.product_id is not None else None
+        if product and product.status == "sold":
             raise HTTPException(409, f"Product {i.article} is already sold")
         if i.product_id is None:
             continue
@@ -136,6 +149,11 @@ def _ensure_confirmable_items(db: Session, r: FittingRequest) -> None:
         )
         if conflict:
             raise HTTPException(409, f"Product {i.article} is reserved in another confirmed fitting")
+
+
+def _cleanup_media(urls: list[str]) -> None:
+    for url in urls:
+        delete_upload(url)
 
 
 @app.get("/", include_in_schema=False)
@@ -172,7 +190,7 @@ def selection(db: Session = Depends(get_db), ctx=Depends(current_context)):
 
 @app.post("/api/selection")
 def add_selection(body: SelectionCreate, db: Session = Depends(get_db), ctx=Depends(current_context)):
-    p = db.get(Product, body.product_id)
+    p = db.scalar(select(Product).where(Product.id == body.product_id).with_for_update())
     if not p or p.status != "available":
         raise HTTPException(404, "Product is not available")
     if body.color not in (p.colors or []) or body.size not in (p.sizes or []):
@@ -183,8 +201,21 @@ def add_selection(body: SelectionCreate, db: Session = Depends(get_db), ctx=Depe
     ))
     if existing:
         return {"ok": True, "id": existing.id}
+
     item = SelectionItem(user_id=ctx["user_id"], product_id=p.id, selected_color=body.color, selected_size=body.size)
-    db.add(item); db.commit(); db.refresh(item)
+    db.add(item)
+    try:
+        db.commit()
+    except IntegrityError:
+        db.rollback()
+        existing = db.scalar(select(SelectionItem).where(
+            SelectionItem.user_id == ctx["user_id"], SelectionItem.product_id == p.id,
+            SelectionItem.selected_color == body.color, SelectionItem.selected_size == body.size,
+        ))
+        if existing:
+            return {"ok": True, "id": existing.id}
+        raise HTTPException(409, "Selection item already exists")
+    db.refresh(item)
     return {"ok": True, "id": item.id}
 
 
@@ -202,14 +233,18 @@ async def create_fitting(body: FittingCreate, db: Session = Depends(get_db), ctx
     if not _is_future(body.date, body.time):
         raise HTTPException(400, "Choose a future date and time")
     q = select(SelectionItem).options(selectinload(SelectionItem.product)).where(SelectionItem.user_id == ctx["user_id"])
-    selected = [i for i in db.scalars(q).all() if i.product.status == "available"]
+    selection_items = db.scalars(q).all()
+    locked_products = _lock_products(db, (i.product_id for i in selection_items))
+    selected = [(i, locked_products.get(i.product_id)) for i in selection_items]
+    selected = [(i, p) for i, p in selected if p and p.status == "available"]
     if not selected:
         raise HTTPException(400, "Selection is empty")
+
     r = FittingRequest(user_id=ctx["user_id"], requested_date=body.date, requested_time=body.time, comment=body.comment.strip(), status="new")
     db.add(r); db.flush()
-    for i in selected:
-        db.add(FittingItem(request_id=r.id, product_id=i.product.id, product_name=i.product.name, article=i.product.article,
-                           price_snapshot=i.product.price, selected_color=i.selected_color, selected_size=i.selected_size))
+    for i, p in selected:
+        db.add(FittingItem(request_id=r.id, product_id=p.id, product_name=p.name, article=p.article,
+                           price_snapshot=p.price, selected_color=i.selected_color, selected_size=i.selected_size))
     db.commit()
     await notify_admins(f"Новая примерка #{r.id}: {body.date.isoformat()} {body.time.strftime('%H:%M')}, вещей: {len(selected)}")
     return {"ok": True, "id": r.id}
@@ -223,19 +258,23 @@ def my_fittings(db: Session = Depends(get_db), ctx=Depends(current_context)):
 
 @app.post("/api/fittings/{request_id}/purchases")
 async def claim_purchases(request_id: int, body: PurchaseClaim, db: Session = Depends(get_db), ctx=Depends(current_context)):
-    r = db.scalar(select(FittingRequest).options(selectinload(FittingRequest.items)).where(FittingRequest.id == request_id))
+    r = db.scalar(select(FittingRequest).where(FittingRequest.id == request_id).with_for_update())
     if not r or r.user_id != ctx["user_id"]:
         raise HTTPException(404, "Fitting not found")
     if r.status != "completed":
         raise HTTPException(400, "Purchases can be marked after the visit is completed")
-    allowed = {i.id for i in r.items if i.availability == "available"}
-    locked = {i.id for i in r.items if i.sold_confirmed}
+
+    items = db.scalars(
+        select(FittingItem).where(FittingItem.request_id == request_id).order_by(FittingItem.id).with_for_update()
+    ).all()
+    allowed = {i.id for i in items if i.availability == "available"}
+    locked = {i.id for i in items if i.sold_confirmed}
     chosen = set(body.item_ids)
     if not chosen.issubset(allowed):
         raise HTTPException(400, "Invalid purchase items")
     if not locked.issubset(chosen):
         raise HTTPException(409, "A confirmed sale cannot be removed from purchase history")
-    for i in r.items:
+    for i in items:
         i.purchased_claimed = i.id in chosen or i.sold_confirmed
     db.commit()
     if chosen:
@@ -276,14 +315,31 @@ def create_product(
     size_list = list(dict.fromkeys(x.strip() for x in sizes.split(",") if x.strip()))
     if not name.strip() or not article or price <= 0 or not color_list or not size_list:
         raise HTTPException(400, "Check required product fields")
-    p = Product(name=name.strip(), article=article, price=price, colors=color_list, sizes=size_list,
-                category=category.strip() or "Одежда", description=description.strip(), status="available")
-    db.add(p); db.flush()
-    for n, image in enumerate(images):
-        db.add(ProductMedia(product_id=p.id, media_type="image", url=save_upload(image, "image"), sort_order=n))
-    if video and video.filename:
-        db.add(ProductMedia(product_id=p.id, media_type="video", url=save_upload(video, "video"), sort_order=len(images)))
-    db.commit()
+
+    uploaded_urls: list[str] = []
+    try:
+        p = Product(name=name.strip(), article=article, price=price, colors=color_list, sizes=size_list,
+                    category=category.strip() or "Одежда", description=description.strip(), status="available")
+        db.add(p); db.flush()
+        for n, image in enumerate(images):
+            url = save_upload(image, "image")
+            uploaded_urls.append(url)
+            db.add(ProductMedia(product_id=p.id, media_type="image", url=url, sort_order=n))
+        if video and video.filename:
+            url = save_upload(video, "video")
+            uploaded_urls.append(url)
+            db.add(ProductMedia(product_id=p.id, media_type="video", url=url, sort_order=len(images)))
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback(); _cleanup_media(uploaded_urls)
+        raise HTTPException(409, "Article already exists") from exc
+    except HTTPException:
+        db.rollback(); _cleanup_media(uploaded_urls)
+        raise
+    except Exception:
+        db.rollback(); _cleanup_media(uploaded_urls)
+        raise
+
     p = db.scalar(select(Product).options(selectinload(Product.media)).where(Product.id == p.id))
     return product_json(p)
 
@@ -335,7 +391,11 @@ def edit_product(product_id: int, body: ProductEdit, db: Session = Depends(get_d
             raise HTTPException(400, "At least one size is required")
         p.sizes = list(dict.fromkeys(sizes))
 
-    db.commit()
+    try:
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        raise HTTPException(409, "Article already exists") from exc
     p = db.scalar(select(Product).options(selectinload(Product.media)).where(Product.id == p.id))
     return product_json(p)
 
@@ -344,7 +404,7 @@ def edit_product(product_id: int, body: ProductEdit, db: Session = Depends(get_d
 def product_status(product_id: int, body: ProductStatusUpdate, db: Session = Depends(get_db), ctx=Depends(admin_context)):
     if body.status not in {"available", "hidden", "sold"}:
         raise HTTPException(400, "Invalid product status")
-    p = db.get(Product, product_id)
+    p = db.scalar(select(Product).where(Product.id == product_id).with_for_update())
     if not p:
         raise HTTPException(404, "Product not found")
     confirmed_sale = db.scalar(
@@ -380,13 +440,15 @@ def admin_fittings(db: Session = Depends(get_db), ctx=Depends(admin_context)):
 def availability(request_id: int, item_id: int, body: AvailabilityUpdate, db: Session = Depends(get_db), ctx=Depends(admin_context)):
     if body.availability not in {"pending", "available", "unavailable"}:
         raise HTTPException(400, "Invalid availability")
-    i = db.get(FittingItem, item_id)
+    i = db.scalar(select(FittingItem).where(FittingItem.id == item_id).with_for_update())
     if not i or i.request_id != request_id:
         raise HTTPException(404, "Item not found")
     if i.request.status != "new":
         raise HTTPException(409, "Availability can only be changed while the fitting is new")
-    if i.product and i.product.status == "sold" and body.availability == "available":
-        raise HTTPException(409, "Sold product cannot be marked available")
+    if body.availability == "available" and i.product_id is not None:
+        product = _lock_products(db, [i.product_id]).get(i.product_id)
+        if product and product.status == "sold":
+            raise HTTPException(409, "Sold product cannot be marked available")
     i.availability = body.availability; db.commit()
     return {"ok": True}
 
@@ -397,6 +459,7 @@ async def update_fitting(request_id: int, body: AdminFittingUpdate, db: Session 
         select(FittingRequest)
         .options(selectinload(FittingRequest.items).selectinload(FittingItem.product), selectinload(FittingRequest.user))
         .where(FittingRequest.id == request_id)
+        .with_for_update()
     )
     if not r:
         raise HTTPException(404, "Fitting not found")
@@ -439,7 +502,7 @@ async def update_fitting(request_id: int, body: AdminFittingUpdate, db: Session 
 
 @app.post("/api/admin/fittings/{request_id}/items/{item_id}/confirm-sale")
 def confirm_sale(request_id: int, item_id: int, db: Session = Depends(get_db), ctx=Depends(admin_context)):
-    i = db.get(FittingItem, item_id)
+    i = db.scalar(select(FittingItem).where(FittingItem.id == item_id).with_for_update())
     if not i or i.request_id != request_id:
         raise HTTPException(404, "Item not found")
     if i.sold_confirmed:
@@ -450,18 +513,20 @@ def confirm_sale(request_id: int, item_id: int, db: Session = Depends(get_db), c
         raise HTTPException(400, "Client has not marked this item as purchased")
     if i.availability != "available":
         raise HTTPException(409, "Only an available fitting item can be sold")
-    if i.product and i.product.status == "sold":
+
+    product = _lock_products(db, [i.product_id]).get(i.product_id) if i.product_id is not None else None
+    if product and product.status == "sold":
         other_sale = db.scalar(
             select(FittingItem.id)
-            .where(FittingItem.product_id == i.product.id, FittingItem.sold_confirmed.is_(True), FittingItem.id != i.id)
+            .where(FittingItem.product_id == product.id, FittingItem.sold_confirmed.is_(True), FittingItem.id != i.id)
             .limit(1)
         )
         if other_sale:
             raise HTTPException(409, "Product was already sold in another fitting")
         raise HTTPException(409, "Product is already marked sold")
     i.sold_confirmed = True
-    if i.product:
-        i.product.status = "sold"
-        db.query(SelectionItem).filter(SelectionItem.product_id == i.product.id).delete(synchronize_session=False)
+    if product:
+        product.status = "sold"
+        db.query(SelectionItem).filter(SelectionItem.product_id == product.id).delete(synchronize_session=False)
     db.commit()
     return {"ok": True}
