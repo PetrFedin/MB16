@@ -56,6 +56,7 @@ def test_browser_client_admin_purchase_flow(tmp_path):
         admin.locator("#publish").click()
         expect(admin.get_by_text("MB16-PW-001", exact=False)).to_be_visible()
 
+        client.reload(wait_until="domcontentloaded")
         expect(client.locator(".product-card")).to_have_count(1)
         client.locator(".product-card").click()
         expect(client.locator("#add")).to_be_visible()
