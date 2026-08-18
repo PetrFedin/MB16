@@ -11,10 +11,14 @@ from fastapi import HTTPException
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
-TEST_DB = Path("/tmp/mb16-test.db")
-if TEST_DB.exists():
-    TEST_DB.unlink()
-os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB}"
+TEST_DATABASE_URL = os.environ.get("TEST_DATABASE_URL", "").strip()
+if TEST_DATABASE_URL:
+    os.environ["DATABASE_URL"] = TEST_DATABASE_URL
+else:
+    TEST_DB = Path("/tmp/mb16-test.db")
+    if TEST_DB.exists():
+        TEST_DB.unlink()
+    os.environ["DATABASE_URL"] = f"sqlite:///{TEST_DB}"
 os.environ["APP_ENV"] = "development"
 os.environ["STORAGE_BACKEND"] = "local"
 os.environ["UPLOAD_DIR"] = "/tmp/mb16-test-uploads"
