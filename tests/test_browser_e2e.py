@@ -63,6 +63,7 @@ def test_browser_client_admin_purchase_flow(tmp_path):
         client.locator("#pc").select_option(label="Black")
         client.locator("#ps").select_option(label="48")
         client.locator("#add").click()
+        expect(client.locator("#toast")).to_have_text("Добавлено")
 
         client.locator('#bottomNav [data-v="selection"]').click()
         expect(client.locator("#book")).to_be_visible()
@@ -79,7 +80,13 @@ def test_browser_client_admin_purchase_flow(tmp_path):
         admin.locator('[data-tab="requests"]').click()
         request = admin.locator("[data-r]").first
         expect(request).to_be_visible()
-        request.locator('[data-av$=":available"]').click()
+        with admin.expect_response(
+            lambda response: "/api/admin/fittings/" in response.url
+            and "/items/" in response.url
+            and response.request.method == "PATCH"
+        ) as availability_response:
+            request.locator('[data-av$=":available"]').click()
+        assert availability_response.value.ok
 
         request = admin.locator("[data-r]").first
         request.locator('[data-up$=":confirmed"]').click()
@@ -89,6 +96,7 @@ def test_browser_client_admin_purchase_flow(tmp_path):
         request.locator("[data-time]").fill("15:00")
         request.locator("[data-note]").fill("Перенос через browser E2E")
         request.locator("[data-reschedule]").click()
+        expect(admin.locator("#toast")).to_have_text("Время обновлено")
         request = admin.locator("[data-r]").first
         expect(request.locator("[data-time]")).to_have_value("15:00")
 
