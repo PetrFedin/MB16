@@ -9,7 +9,7 @@ from zoneinfo import ZoneInfo
 from fastapi import Depends, FastAPI, File, Form, HTTPException, UploadFile
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
-from sqlalchemy import desc, select, text
+from sqlalchemy import and_, desc, or_, select, text
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -22,7 +22,7 @@ from .storage import delete_upload, save_upload
 from .telegram import notify_admins, send_telegram_message
 
 settings = get_settings()
-app = FastAPI(title=settings.app_name, version="0.4.0")
+app = FastAPI(title=settings.app_name, version="0.5.0")
 settings.upload_path.mkdir(parents=True, exist_ok=True)
 
 STATIC_DIR = Path(__file__).resolve().parent.parent / "static"
@@ -58,6 +58,7 @@ def fitting_json(r: FittingRequest, admin: bool = False) -> dict:
     data = {
         "id": r.id,
         "status": r.status,
+        "purchase_reported": r.purchase_reported,
         "requested_date": r.requested_date.isoformat(),
         "requested_time": r.requested_time.strftime("%H:%M"),
         "confirmed_date": r.confirmed_date.isoformat() if r.confirmed_date else None,
@@ -124,6 +125,37 @@ def _lock_products(db: Session, product_ids) -> dict[int, Product]:
     return {p.id: p for p in products}
 
 
+def _reservation_conflict(
+    db: Session,
+    product_id: int,
+    *,
+    exclude_request_id: int | None = None,
+) -> int | None:
+    """Return a fitting item id that still holds the product, if any."""
+    active_hold = or_(
+        FittingRequest.status == "confirmed",
+        and_(
+            FittingRequest.status == "completed",
+            or_(
+                FittingRequest.purchase_reported.is_(False),
+                FittingItem.purchased_claimed.is_(True),
+            ),
+        ),
+    )
+    q = (
+        select(FittingItem.id)
+        .join(FittingRequest)
+        .where(
+            FittingItem.product_id == product_id,
+            FittingItem.availability == "available",
+            active_hold,
+        )
+    )
+    if exclude_request_id is not None:
+        q = q.where(FittingRequest.id != exclude_request_id)
+    return db.scalar(q.limit(1))
+
+
 def _ensure_confirmable_items(db: Session, r: FittingRequest) -> None:
     available_items = [i for i in r.items if i.availability == "available"]
     if not available_items:
@@ -136,19 +168,8 @@ def _ensure_confirmable_items(db: Session, r: FittingRequest) -> None:
             raise HTTPException(409, f"Product {i.article} is already sold")
         if i.product_id is None:
             continue
-        conflict = db.scalar(
-            select(FittingItem.id)
-            .join(FittingRequest)
-            .where(
-                FittingItem.product_id == i.product_id,
-                FittingItem.availability == "available",
-                FittingRequest.status == "confirmed",
-                FittingRequest.id != r.id,
-            )
-            .limit(1)
-        )
-        if conflict:
-            raise HTTPException(409, f"Product {i.article} is reserved in another confirmed fitting")
+        if _reservation_conflict(db, i.product_id, exclude_request_id=r.id):
+            raise HTTPException(409, f"Product {i.article} is reserved in another fitting")
 
 
 def _cleanup_media(urls: list[str]) -> None:
@@ -267,6 +288,7 @@ async def claim_purchases(request_id: int, body: PurchaseClaim, db: Session = De
     items = db.scalars(
         select(FittingItem).where(FittingItem.request_id == request_id).order_by(FittingItem.id).with_for_update()
     ).all()
+    _lock_products(db, (i.product_id for i in items))
     allowed = {i.id for i in items if i.availability == "available"}
     locked = {i.id for i in items if i.sold_confirmed}
     chosen = set(body.item_ids)
@@ -276,6 +298,7 @@ async def claim_purchases(request_id: int, body: PurchaseClaim, db: Session = De
         raise HTTPException(409, "A confirmed sale cannot be removed from purchase history")
     for i in items:
         i.purchased_claimed = i.id in chosen or i.sold_confirmed
+    r.purchase_reported = True
     db.commit()
     if chosen:
         await notify_admins(f"Клиент отметил покупки по примерке #{r.id}: {len(chosen)} шт.")
@@ -414,15 +437,8 @@ def product_status(product_id: int, body: ProductStatusUpdate, db: Session = Dep
     )
     if confirmed_sale and body.status != "sold":
         raise HTTPException(409, "A confirmed sale cannot be returned to the catalog")
-    if body.status == "sold":
-        confirmed = db.scalar(
-            select(FittingItem.id)
-            .join(FittingRequest)
-            .where(FittingItem.product_id == p.id, FittingRequest.status == "confirmed")
-            .limit(1)
-        )
-        if confirmed:
-            raise HTTPException(409, "Product is reserved in a confirmed fitting")
+    if body.status == "sold" and _reservation_conflict(db, p.id):
+        raise HTTPException(409, "Product is reserved in a fitting")
     p.status = body.status
     if body.status == "sold":
         db.query(SelectionItem).filter(SelectionItem.product_id == p.id).delete(synchronize_session=False)
@@ -515,6 +531,8 @@ def confirm_sale(request_id: int, item_id: int, db: Session = Depends(get_db), c
         raise HTTPException(409, "Only an available fitting item can be sold")
 
     product = _lock_products(db, [i.product_id]).get(i.product_id) if i.product_id is not None else None
+    if product and _reservation_conflict(db, product.id, exclude_request_id=request_id):
+        raise HTTPException(409, "Product is reserved in another fitting")
     if product and product.status == "sold":
         other_sale = db.scalar(
             select(FittingItem.id)

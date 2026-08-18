@@ -31,6 +31,8 @@ from app.main import app  # noqa: E402
 ADMIN = {"X-Debug-User-Id": "9001"}
 USER_A = {"X-Debug-User-Id": "2101"}
 USER_B = {"X-Debug-User-Id": "2102"}
+USER_C = {"X-Debug-User-Id": "2201"}
+USER_D = {"X-Debug-User-Id": "2202"}
 PNG = base64.b64decode(
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Y9ZQmcAAAAASUVORK5CYII="
 )
@@ -51,7 +53,7 @@ def create_product(client: TestClient, article: str) -> int:
             "colors": "Black",
             "sizes": "48",
             "category": "Одежда",
-            "description": "PostgreSQL concurrency test",
+            "description": "PostgreSQL resilience test",
         },
         files=images(),
     )
@@ -69,7 +71,7 @@ def create_fitting(client: TestClient, headers: dict[str, str], product_id: int,
     response = client.post(
         "/api/fittings",
         headers=headers,
-        json={"date": fitting_date, "time": "14:00:00", "comment": "race"},
+        json={"date": fitting_date, "time": "14:00:00", "comment": "resilience"},
     )
     assert response.status_code == 200, response.text
     request_id = response.json()["id"]
@@ -82,6 +84,23 @@ def create_fitting(client: TestClient, headers: dict[str, str], product_id: int,
         json={"availability": "available"},
     ).status_code == 200
     return request_id, item_id, fitting_date
+
+
+def get_admin_request(client: TestClient, request_id: int) -> dict:
+    requests = client.get("/api/admin/fittings", headers=ADMIN).json()
+    return next(r for r in requests if r["id"] == request_id)
+
+
+def confirm_fitting(client: TestClient, request_id: int, fitting_date: str) -> int:
+    return client.patch(
+        f"/api/admin/fittings/{request_id}",
+        headers=ADMIN,
+        json={
+            "status": "confirmed",
+            "confirmed_date": fitting_date,
+            "confirmed_time": "15:00:00",
+        },
+    ).status_code
 
 
 def test_concurrent_first_requests_create_one_user_without_500():
@@ -115,16 +134,7 @@ def test_concurrent_confirmations_reserve_product_once():
     def confirm(request_id: int, fitting_date: str) -> int:
         with TestClient(app) as local_client:
             barrier.wait(timeout=10)
-            response = local_client.patch(
-                f"/api/admin/fittings/{request_id}",
-                headers=ADMIN,
-                json={
-                    "status": "confirmed",
-                    "confirmed_date": fitting_date,
-                    "confirmed_time": "15:00:00",
-                },
-            )
-            return response.status_code
+            return confirm_fitting(local_client, request_id, fitting_date)
 
     with ThreadPoolExecutor(max_workers=2) as pool:
         first = pool.submit(confirm, request_a, date_a)
@@ -137,6 +147,44 @@ def test_concurrent_confirmations_reserve_product_once():
         relevant = [r for r in requests if r["id"] in {request_a, request_b}]
         assert sum(r["status"] == "confirmed" for r in relevant) == 1
         assert sum(r["status"] == "new" for r in relevant) == 1
+
+
+def test_completed_fitting_holds_until_purchase_decision_then_releases():
+    with TestClient(app) as client:
+        product_id = create_product(client, "MB16-HOLD-001")
+        request_a, item_a, date_a = create_fitting(client, USER_C, product_id, 7)
+        assert confirm_fitting(client, request_a, date_a) == 200
+
+        request_b, _, date_b = create_fitting(client, USER_D, product_id, 8)
+        assert confirm_fitting(client, request_b, date_b) == 409
+
+        assert client.patch(
+            f"/api/admin/fittings/{request_a}",
+            headers=ADMIN,
+            json={"status": "completed"},
+        ).status_code == 200
+        completed = get_admin_request(client, request_a)
+        assert completed["purchase_reported"] is False
+
+        assert confirm_fitting(client, request_b, date_b) == 409
+        assert client.patch(
+            f"/api/admin/products/{product_id}/status",
+            headers=ADMIN,
+            json={"status": "sold"},
+        ).status_code == 409
+
+        response = client.post(
+            f"/api/fittings/{request_a}/purchases",
+            headers=USER_C,
+            json={"item_ids": []},
+        )
+        assert response.status_code == 200, response.text
+        completed = get_admin_request(client, request_a)
+        assert completed["purchase_reported"] is True
+        assert completed["items"][0]["id"] == item_a
+        assert completed["items"][0]["purchased_claimed"] is False
+
+        assert confirm_fitting(client, request_b, date_b) == 200
 
 
 def test_partial_media_failure_leaves_no_orphans():

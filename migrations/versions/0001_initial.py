@@ -78,6 +78,7 @@ def upgrade() -> None:
         sa.Column("comment", sa.Text(), nullable=False),
         sa.Column("admin_note", sa.Text(), nullable=False),
         sa.Column("status", sa.String(length=24), nullable=False),
+        sa.Column("purchase_reported", sa.Boolean(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
     )
