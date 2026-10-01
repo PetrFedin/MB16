@@ -187,3 +187,11 @@ docker-compose.local.yml    local/VPS full stack
 На текущей версии пройден end-to-end smoke test:
 
 `создание карточки -> редактирование карточки -> каталог -> подборка -> запрос -> проверка наличия -> подтверждение -> клиент пришёл -> клиент отметил покупку -> админ подтвердил продажу -> товар скрыт -> покупка сохранена`.
+
+## Planned integration roadmap
+
+Canonical implementation plan:
+
+- [docs/MB16_INTEGRATION_MASTER_PLAN_2026-10-01.md](./docs/MB16_INTEGRATION_MASTER_PLAN_2026-10-01.md)
+
+This file is a **planned implementation source**, not evidence that all listed capabilities are already live. Future full-roadmap implementation should cite this filename explicitly and follow its phases, authority boundaries, dependencies and acceptance gates.
