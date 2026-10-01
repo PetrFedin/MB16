@@ -91,3 +91,66 @@ Record attendance/no-show, tried items, liked/disliked, hold/purchase, follow-up
 8. MB16-INT-07 Post-visit lifecycle
 
 **Implementation instruction:** deepen private clienteling; do not broaden MB16 into a generic marketplace.
+
+## Additional wave — calendar handoff, reminders and staff account security
+
+### iCalendar appointment handoff — ADOPT
+
+Reference: https://github.com/kewisch/ical.js
+
+After the Appointment Capacity model is stable, generate standards-based calendar artefacts for confirmed fittings.
+
+Support:
+
+- add-to-calendar .ics;
+- rescheduled appointment update;
+- cancellation;
+- timezone-safe start/end;
+- location/contact text;
+- opaque MB16 appointment identifier.
+
+The calendar entry is a projection. MB16 remains the confirmed appointment authority.
+
+Imported external calendar events should not automatically create fittings.
+
+### Web Push fitting reminders — ADOPT/CONDITIONAL
+
+Reference: https://github.com/web-push-libs/web-push
+
+Use when the web/PWA channel and browser support make it useful.
+
+Reminder types:
+
+- fitting tomorrow/today;
+- fitting changed/cancelled;
+- hold expiring before fitting;
+- stylist follow-up ready.
+
+Consent/notification preference must be explicit. Push delivery status does not equal appointment attendance.
+
+If Telegram remains the dominant channel, Web Push can stay conditional.
+
+### Passkeys for staff/admin — ADOPT
+
+Reference: https://github.com/duo-labs/py_webauthn
+
+Apply first to:
+
+- administrators;
+- stylists with access to private client notes/history;
+- staff who can change stock holds or client records.
+
+Use step-up authentication for bulk export, role changes and sensitive client-data operations.
+
+Passkeys attach to the existing account model; no parallel staff directory.
+
+### Acceptance extension
+
+- .ics reflects server-authoritative appointment version;
+- cancellation/reschedule cannot leave conflicting calendar versions without sequence/version metadata;
+- push honours consent/preferences;
+- staff passkey recovery/removal is audited;
+- none of these additions introduce payment/marketplace scope.
+
+**Sequencing:** appointment authority first, then ICS/reminders; staff passkeys can be introduced once authentication/session behavior is stable.
+
