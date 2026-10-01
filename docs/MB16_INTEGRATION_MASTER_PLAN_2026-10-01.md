@@ -154,3 +154,103 @@ Passkeys attach to the existing account model; no parallel staff directory.
 
 **Sequencing:** appointment authority first, then ICS/reminders; staff passkeys can be introduced once authentication/session behavior is stable.
 
+## Additional wave — fitting preparation, showroom scan and clienteling conversion
+
+This wave deepens the actual appointment execution after Client Profile / Appointment / Hold / Look authorities exist.
+
+### Fitting Preparation Board — ADOPT
+
+For every upcoming fitting, generate a preparation workspace:
+
+- appointment/client;
+- stylist;
+- room;
+- planned looks/items;
+- hold state;
+- required sizes/alternatives;
+- product availability;
+- preparation owner/status;
+- missing-item reason;
+- client notes relevant to the visit.
+
+Flow:
+
+appointment confirmed -> proposed/prepared items -> physical pick -> ready check -> fitting -> outcome
+
+Preparation status must never overwrite stock/hold authority; it references those records.
+
+### Showroom Item Scan — ADOPT
+
+Browser scanner reference: https://github.com/zxing-js/browser
+
+Support QR/EAN/barcode scan for staff where product labels carry a compatible code.
+
+Use cases:
+
+- find product/variant;
+- add/remove item from fitting preparation;
+- verify prepared item;
+- record tried item;
+- retrieve hold status.
+
+Scanner output is only an identifier candidate. Server resolves it to MB16's canonical product/variant and validates staff permissions.
+
+Do not expose client data in physical product QR/barcodes.
+
+### Shareable Digital Lookbook — ADOPT
+
+Allow stylist to create a time-limited client share link for selected looks/items.
+
+Link properties:
+
+- opaque high-entropy token;
+- client/look scope;
+- expiry;
+- revoke;
+- optional view analytics;
+- no private stylist notes;
+- no general client profile exposure.
+
+The lookbook is a read projection; product availability/price are loaded from current MB16 state where appropriate.
+
+### Clienteling Follow-up Cadence — ADOPT
+
+Create explicit follow-up tasks after fitting:
+
+- send selected look;
+- hold-expiry reminder;
+- request feedback;
+- new arrival matching explicit preference;
+- personal appointment invitation.
+
+Respect contact consent/channel preference and frequency limits.
+
+This remains one-to-one clienteling, not broad marketing automation.
+
+### Fitting Conversion Funnel — ADOPT
+
+Measure operational conversion using authoritative facts:
+
+appointment booked -> attended -> items prepared -> items tried -> liked/saved -> held -> purchased
+
+Metrics may include:
+
+- attendance/no-show;
+- preparation completeness;
+- try-to-like;
+- like-to-hold;
+- hold-to-purchase;
+- stylist/client cohort.
+
+Do not infer salesperson quality from tiny samples; always expose denominator and period.
+
+### Additional acceptance
+
+- fitting board reconciles to actual holds/availability;
+- scan cannot mutate an unknown/wrong variant;
+- share token expires/revokes and leaks no private notes;
+- follow-up obeys consent/frequency rules;
+- funnel is reproducible from event/order/fitting facts.
+
+**Sequencing:** Client Profile + Appointment + Hold -> preparation board -> scan -> lookbook/follow-up -> conversion analytics.
+
