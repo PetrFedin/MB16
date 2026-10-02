@@ -539,3 +539,98 @@ Use outcomes to improve ranking while preserving explicit preference history and
 
 **Sequencing:** Client Profile + Look Builder + fitting outcomes -> taste memory -> visual index -> Stylist Copilot -> client presentation -> learning loop.
 
+## Premium commercial wave — Private Wardrobe Vault and occasion planning
+
+This is the luxury-clienteling counterpart to FLASHIN's consumer wardrobe. MB16 focuses on a stylist-curated private wardrobe and high-touch occasion planning.
+
+### Private Wardrobe Vault — ADOPT
+
+Client/stylist may record:
+
+- MB16 purchase;
+- externally owned luxury piece;
+- photo;
+- brand/category;
+- colour/material where known;
+- size/fit note;
+- season;
+- client-confirmed status;
+- stylist note;
+- care/service reference;
+- privacy state.
+
+External owned items are clearly distinguished from MB16 catalog products.
+
+### Stylist-curated Wardrobe Memory — ADOPT
+
+The stylist can organise items into:
+
+- core wardrobe;
+- seasonal;
+- travel;
+- occasion;
+- rarely used;
+- alteration/service needed;
+- archive.
+
+These are clienteling labels, not hidden consumer scores.
+
+### Occasion Brief — ADOPT
+
+Create a structured brief:
+
+- occasion/event;
+- date/location;
+- dress code;
+- client's stated objective/preferences;
+- existing wardrobe candidates;
+- products to source;
+- appointment/fitting deadline.
+
+Then:
+
+occasion -> wardrobe review -> proposed looks -> gaps -> showroom pull/hold -> fitting -> final selection
+
+### Wardrobe Gap / Opportunity — ADOPT
+
+Identify explainable gaps such as:
+
+- no suitable shoe/bag/jacket for approved look;
+- missing layer/colour balance;
+- unavailable size alternative;
+- replacement/service need.
+
+This becomes a stylist sales opportunity only after human review.
+
+### Travel Packing / Capsule — ADOPT
+
+For client-approved travel context:
+
+- trip dates;
+- activities/dress codes;
+- selected wardrobe;
+- proposed packing list;
+- missing pieces;
+- weather only from an approved external source if integrated.
+
+Do not collect precise travel details beyond what the client chooses to share.
+
+### Private Share / Concierge Handoff — ADOPT
+
+Approved wardrobe/look plans can be shared through existing expiring client links.
+
+Never expose the full private wardrobe by default.
+
+### Additional acceptance
+
+- external owned items are not represented as MB16 stock;
+- client/stylist provenance of each preference/note is visible;
+- occasion recommendations require stylist approval;
+- share links expose only selected items;
+- private wardrobe can be fully removed/exported according to account policy;
+- opportunity analytics do not become hidden pressure scoring.
+
+**Sequencing:** Client Profile + Look Builder + Stylist Copilot -> Wardrobe Vault -> occasion brief -> gap planning -> travel/capsule -> concierge follow-up.
+
+**Commercial framing:** MB16 becomes a private digital wardrobe and personal-shopping operating system for high-value clients.
+
