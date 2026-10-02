@@ -254,3 +254,93 @@ Do not infer salesperson quality from tiny samples; always expose denominator an
 
 **Sequencing:** Client Profile + Appointment + Hold -> preparation board -> scan -> lookbook/follow-up -> conversion analytics.
 
+## Additional wave — offline showroom operations and stocktake reconciliation
+
+This wave makes MB16 usable during a fitting even when connectivity is unreliable.
+
+### Dexie offline staff store — ADOPT
+
+Reference: https://github.com/dexie/Dexie.js
+
+Use IndexedDB via Dexie for a bounded staff-only offline cache containing:
+
+- today's appointments;
+- prepared looks/items;
+- canonical product/variant identifiers;
+- last-known availability/hold projection;
+- scan queue;
+- fitting outcome drafts.
+
+Do **not** cache full private client history or unnecessary personal data.
+
+Each local record carries:
+
+- server version/updated_at;
+- fetched_at;
+- sync state;
+- local mutation ID.
+
+### Offline mutation queue — ADOPT
+
+Allowed offline actions should be intentionally narrow, for example:
+
+- mark item physically prepared;
+- scan/add item to fitting draft;
+- record tried/liked/disliked draft;
+- collect fitting notes draft.
+
+High-risk/authority actions stay online-only:
+
+- final stock hold allocation;
+- stock correction;
+- role/member changes;
+- sensitive client export;
+- destructive deletion.
+
+On reconnect:
+
+local mutation -> idempotent API command -> conflict/version check -> accepted/rejected -> local reconciliation
+
+Never use last-known offline availability to promise/reserve stock without server confirmation.
+
+### Showroom Cycle Count / Stocktake — ADOPT
+
+Create a lightweight inventory verification workflow:
+
+stocktake session -> location/rack -> scanned variants -> expected projection -> discrepancy -> review -> approved inventory correction in source system/authority
+
+Store:
+
+- session;
+- operator;
+- scan event;
+- variant;
+- observed quantity;
+- expected quantity;
+- discrepancy reason;
+- reconciliation status.
+
+MB16 should not become a warehouse ERP. If inventory truth comes from another system, approved corrections must flow to/through that authority.
+
+### Conflict UI — ADOPT
+
+Explicitly surface reconnect conflicts:
+
+- item sold while offline;
+- hold expired;
+- appointment changed;
+- product/variant deactivated;
+- duplicate scan/mutation.
+
+Staff chooses or follows deterministic domain resolution; do not silently overwrite newer server state.
+
+### Additional acceptance
+
+- app can open today's fitting workspace offline after prior sync;
+- offline queue is idempotent across refresh/retry;
+- server authority always wins stock/hold conflicts;
+- cached PII is minimized and clearable on logout/device deauthorization;
+- stocktake discrepancies require explicit reconciliation before stock changes.
+
+**Sequencing:** appointment/preparation/scan flows first -> Dexie cache -> offline queue -> conflict handling -> stocktake.
+
