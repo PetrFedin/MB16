@@ -344,3 +344,88 @@ Staff chooses or follows deterministic domain resolution; do not silently overwr
 
 **Sequencing:** appointment/preparation/scan flows first -> Dexie cache -> offline queue -> conflict handling -> stocktake.
 
+## Additional wave — appointment waitlist and slot backfill
+
+This wave improves fitting-room/stylist utilization without becoming broad campaign automation.
+
+### Appointment Waitlist Authority — ADOPT
+
+Create a waitlist record for clients who explicitly want an earlier/new slot.
+
+Store:
+
+- client;
+- preferred date/time windows;
+- preferred stylist where relevant;
+- duration/service type;
+- location/room requirement;
+- expiration;
+- contact channel/consent;
+- priority rule;
+- status.
+
+The waitlist is not a confirmed appointment.
+
+### Slot Backfill Engine — ADOPT
+
+Trigger when:
+
+- appointment cancelled;
+- slot released;
+- stylist/room capacity added;
+- hold on a slot expires.
+
+Flow:
+
+available slot -> eligible waitlist candidates -> ordered candidate list -> offer -> offer expiry -> accept -> server confirms appointment
+
+Only one candidate may claim the slot successfully.
+
+### Fairness / Priority Rules — ADOPT
+
+Priority can be based on explicit versioned rules such as:
+
+- request time;
+- client-selected urgency;
+- stylist requirement;
+- service duration fit;
+- manual VIP/priority policy where business-approved.
+
+Do not use hidden personal scoring.
+
+Every override stores reason/operator.
+
+### Offer Expiry / Race Safety — ADOPT
+
+A slot offer is a temporary right to accept, not an appointment.
+
+Store:
+
+- offer ID;
+- candidate;
+- slot version;
+- expires_at;
+- accepted/rejected/expired;
+- resulting appointment ID.
+
+Server-side optimistic locking/transaction prevents two accepted offers creating the same appointment.
+
+### Waitlist-to-Follow-up integration — ADOPT
+
+If a client does not accept:
+
+- try next eligible candidate;
+- optionally keep the original client on the waitlist;
+- obey notification preferences/frequency.
+
+### Additional acceptance
+
+- a waitlist entry never appears as booked capacity;
+- concurrent acceptance cannot double-book;
+- priority rule/version is auditable;
+- expired offer cannot create appointment;
+- cancellation/backfill analytics distinguish offered vs accepted;
+- contact consent is respected.
+
+**Sequencing:** Appointment Capacity first -> waitlist -> slot-offer lifecycle -> automated backfill -> utilization analytics.
+
