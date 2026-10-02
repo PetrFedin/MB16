@@ -429,3 +429,113 @@ If a client does not accept:
 
 **Sequencing:** Appointment Capacity first -> waitlist -> slot-offer lifecycle -> automated backfill -> utilization analytics.
 
+## Premium innovation wave — private stylist copilot and taste memory
+
+This wave turns MB16 into a premium clienteling tool: AI assists the stylist while the stylist remains the decision-maker and relationship owner.
+
+### Client Taste Memory — ADOPT
+
+Build an explainable preference layer from approved facts:
+
+- explicit likes/dislikes;
+- saved looks;
+- items tried;
+- fitting feedback;
+- purchased items;
+- preferred brands/categories/colours;
+- size/fit preferences;
+- stylist-confirmed notes.
+
+Keep distinct:
+
+- user-confirmed preference;
+- observed behaviour;
+- stylist note;
+- model-derived similarity.
+
+### Visual Taste Embeddings — ADAPT
+
+References:
+
+- https://github.com/mlfoundations/open_clip
+- https://github.com/qdrant/qdrant
+
+Use a rebuildable visual index to suggest:
+
+- related pieces;
+- alternatives to liked items;
+- complementary products;
+- items near explicit taste examples.
+
+Vector metadata is not product/client-profile authority.
+
+### Stylist Copilot — ADOPT/ADAPT
+
+Typed-agent pattern candidate:
+
+https://github.com/pydantic/pydantic-ai
+
+Inputs:
+
+- Client Profile;
+- explicit taste memory;
+- appointment context;
+- current availability;
+- saved/previous looks;
+- purchase/fitting history;
+- stylist-selected objective.
+
+Structured output:
+
+- proposed looks;
+- candidate items/variants;
+- reason for each choice;
+- availability/hold state;
+- known fit context;
+- confidence/unknowns;
+- alternatives.
+
+The stylist reviews/edits before anything is shown or reserved.
+
+### Why this look — ADOPT
+
+Source-linked explanation examples:
+
+- matches saved silhouette;
+- uses preferred colour;
+- complements previous purchase;
+- alternative to unavailable item;
+- fits current fitting objective.
+
+No personality/body judgments.
+
+### Client Presentation Mode — ADOPT
+
+Approved stylist selections become a premium client-facing view:
+
+- 1–3 looks;
+- item gallery;
+- stylist notes;
+- available sizes;
+- reserve/hold request;
+- appointment context;
+- expiring share link.
+
+### Learning Loop — ADOPT
+
+proposed -> shown -> tried -> liked/disliked -> held -> purchased
+
+Use outcomes to improve ranking while preserving explicit preference history and avoiding one-style feedback loops.
+
+### Additional acceptance
+
+- no AI recommendation auto-reserves/purchases/sends;
+- proposals use canonical availability;
+- reason codes resolve to known facts;
+- client can correct explicit preferences;
+- sensitive/body inferences are prohibited;
+- low-data clients fall back to stylist rules;
+- stylist remains author of final recommendation.
+
+**Sequencing:** Client Profile + Look Builder + fitting outcomes -> taste memory -> visual index -> Stylist Copilot -> client presentation -> learning loop.
+
