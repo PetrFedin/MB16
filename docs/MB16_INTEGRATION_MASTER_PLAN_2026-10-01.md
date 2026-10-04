@@ -730,3 +730,131 @@ Do not rank clients by hidden wealth/importance scores.
 
 **Commercial framing:** this lets MB16 support premium trunk shows and invitation-only selling as a complete clienteling workflow.
 
+## Moat wave — white-label multi-brand clienteling SaaS
+
+This wave turns MB16 from one luxury showroom product into a reusable B2B SaaS platform for boutiques, independent brands, showrooms and private-client teams.
+
+### Organisation / Tenant Authority — ADOPT
+
+Create a strict tenant boundary:
+
+- organisation/brand;
+- users/stylists;
+- locations/showrooms;
+- catalog source;
+- client ownership;
+- appointment/hold policies;
+- branding/theme;
+- feature flags;
+- integration credentials;
+- retention/privacy policy.
+
+No client/profile/order/wardrobe data may cross tenants unless an explicit cross-brand programme exists and the client has opted in.
+
+### White-label Experience — ADOPT
+
+Allow per-tenant:
+
+- logo;
+- typography/theme tokens;
+- domain/subdomain;
+- welcome/concierge text;
+- selected navigation;
+- language;
+- contact/booking routing.
+
+Do not fork the application per client.
+
+One codebase, one release discipline, tenant-scoped configuration.
+
+### Catalog Connector Contract — ADOPT
+
+Define a stable adapter boundary for:
+
+- CSV/Excel import;
+- REST/GraphQL commerce feed;
+- ERP/PLM connector;
+- manual curated catalog;
+- optional Synth-v2 handoff/integration.
+
+Canonical MB16 product/clienteling projection stores:
+
+- external provider;
+- external product/variant ID;
+- sync version/time;
+- source status;
+- mapping state.
+
+External catalog remains source for facts it owns.
+
+### Client Data Ownership Policy — ADOPT
+
+Each tenant configures:
+
+- client account owner;
+- staff visibility;
+- location visibility;
+- export rules;
+- deletion/retention;
+- consent scope;
+- CRM sync policy.
+
+Do not silently merge the same person across different brand tenants.
+
+### Brand-specific Clienteling Playbooks — ADOPT
+
+Allow versioned playbooks:
+
+- new client onboarding;
+- pre-appointment preparation;
+- VIP outreach;
+- post-fitting follow-up;
+- trunk-show follow-up;
+- lapsed client reactivation;
+- wardrobe review;
+- occasion planning.
+
+Playbooks create proposals/tasks/reminders; they do not auto-message without configured approval/consent.
+
+### Tenant Analytics — ADOPT
+
+Provide:
+
+- appointments;
+- prepared looks;
+- hold-to-purchase;
+- stylist follow-up;
+- client return;
+- event conversion;
+- wardrobe/clienteling engagement.
+
+Each tenant sees its own facts plus only explicitly defined anonymised benchmark products if such a service is later created.
+
+### SaaS Commercial Packaging — ADOPT
+
+Possible tiers:
+
+- Solo / stylist;
+- Boutique;
+- Brand / multi-location;
+- Enterprise;
+- optional AI Copilot;
+- optional Private Events;
+- optional Wardrobe Vault;
+- optional integrations.
+
+Commercial packaging remains separate from entitlement truth inside product code.
+
+### Additional acceptance
+
+- tenant ID is enforced server-side on every protected entity;
+- brand theming cannot change core authority/security logic;
+- external catalog mappings are auditable;
+- no hidden cross-tenant client graph exists;
+- exports/deletions respect tenant/client policy;
+- app remains one maintainable product rather than customer forks.
+
+**Sequencing:** current clienteling core -> tenant/org boundary -> configuration/theme -> connector contract -> multi-location -> commercial packaging.
+
+**Commercial framing:** MB16 becomes a repeatable luxury clienteling SaaS product that can be sold to many brands and boutiques instead of one bespoke implementation.
+
