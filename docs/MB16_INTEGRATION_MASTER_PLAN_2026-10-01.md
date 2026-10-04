@@ -634,3 +634,99 @@ Never expose the full private wardrobe by default.
 
 **Commercial framing:** MB16 becomes a private digital wardrobe and personal-shopping operating system for high-value clients.
 
+## Premium enterprise wave — private events and trunk-show clienteling
+
+This wave adds a high-value luxury retail scenario around invitation-only appointments and temporary curated assortments without turning MB16 into a general event platform.
+
+### Private Event Authority — ADOPT
+
+Create:
+
+- event/trunk-show ID;
+- title/theme;
+- venue;
+- start/end;
+- host/stylist;
+- client segment/eligibility;
+- capacity;
+- RSVP state;
+- private assortment/look selection;
+- fitting slots;
+- notes/status.
+
+Examples:
+
+- new collection preview;
+- trunk show;
+- private fitting evening;
+- travelling showroom;
+- VIP capsule presentation.
+
+### Curated Event Assortment — ADOPT
+
+For each event, define:
+
+- products/variants;
+- looks;
+- event-only preview items;
+- sample/size availability;
+- reserve/hold rules;
+- event notes.
+
+Canonical product/price/availability remains in MB16 product authority.
+
+### Guest List / RSVP — ADOPT
+
+Track:
+
+invited -> accepted/declined -> appointment selected -> attended/no-show -> follow-up
+
+Respect client contact consent and event privacy.
+
+### Stylist Preparation — ADOPT
+
+Before event:
+
+guest -> taste/profile -> proposed looks/items -> physical preparation -> fitting slot -> staff owner
+
+Reuse the existing Fitting Preparation Board and Stylist Copilot rather than creating separate styling logic.
+
+### Event-day Check-in — ADOPT
+
+Use existing QR/check-in capability where useful.
+
+A check-in may open:
+
+- guest profile summary;
+- prepared looks;
+- reserved/held items;
+- appointment slot.
+
+QR carries opaque IDs only.
+
+### Event Conversion / Follow-up — ADOPT
+
+Measure:
+
+- invite-to-RSVP;
+- RSVP-to-attendance;
+- attendance-to-fitting;
+- fitting-to-hold;
+- hold-to-purchase;
+- post-event follow-up.
+
+Do not rank clients by hidden wealth/importance scores.
+
+### Additional acceptance
+
+- event assortment references canonical products;
+- RSVP never creates stock hold automatically;
+- guest list is ACL-protected;
+- stylist preparation reuses normal fitting/hold authority;
+- event conversion is reproducible from real appointments/holds/orders;
+- event mode can be disabled without changing ordinary MB16 clienteling.
+
+**Sequencing:** Client Profile + Appointment + Hold + Look Builder -> Private Event -> RSVP -> preparation/check-in -> event conversion.
+
+**Commercial framing:** this lets MB16 support premium trunk shows and invitation-only selling as a complete clienteling workflow.
+
