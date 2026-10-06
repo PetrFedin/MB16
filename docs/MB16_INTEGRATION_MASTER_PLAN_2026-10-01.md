@@ -858,3 +858,120 @@ Commercial packaging remains separate from entitlement truth inside product code
 
 **Commercial framing:** MB16 becomes a repeatable luxury clienteling SaaS product that can be sold to many brands and boutiques instead of one bespoke implementation.
 
+## Platform economics wave — Embedded Clienteling API and SDK
+
+This wave turns MB16 from a standalone white-label SaaS into an embeddable luxury-clienteling capability that can live inside a brand's existing mobile app, CRM, ecommerce site or showroom tablet.
+
+### Clienteling API — ADOPT
+
+Expose tenant-scoped capabilities:
+
+- client profile summary;
+- appointments;
+- stylist assignment;
+- looks and wardrobe references;
+- fitting outcomes;
+- holds/reservations;
+- private-event invitations/RSVP;
+- approved follow-up tasks;
+- tenant analytics.
+
+No tenant can query another tenant's client graph.
+
+### SDK / Embeddable Components — ADOPT
+
+Create thin versioned components for:
+
+- appointment booking;
+- stylist look presentation;
+- client profile card;
+- wardrobe/occasion planning;
+- private-event RSVP;
+- secure share links;
+- hold/request action;
+- fitting outcome capture.
+
+The SDK is presentation/integration infrastructure. MB16 backend remains authority.
+
+### Partner Authentication / Delegation — ADOPT
+
+Use verified token exchange:
+
+partner session -> verified tenant/client context -> bounded MB16 token -> scoped API
+
+Never trust tenant ID, client ID or stylist role supplied only by the browser.
+
+### Partner Event Contract — ADOPT
+
+Signed events:
+
+- appointment created/changed;
+- hold created/expired;
+- fitting completed;
+- look shared;
+- preference/consent changed;
+- event RSVP changed;
+- wardrobe update.
+
+Use versioned AsyncAPI-style event schemas where useful.
+
+### Partner Sandbox — ADOPT
+
+Provide a synthetic demo tenant with:
+
+- fake clients;
+- fake catalog;
+- appointments;
+- wardrobe;
+- events;
+- holds.
+
+Partner can build and certify integration without seeing production PII.
+
+### Embedded Clienteling Certification — ADOPT
+
+Before production activation, run contract tests:
+
+- auth/tenant isolation;
+- idempotency;
+- event delivery;
+- stale/invalid product IDs;
+- hold conflicts;
+- consent checks;
+- mobile/web rendering;
+- SDK version compatibility.
+
+Issue an internal integration status:
+
+- sandbox validated;
+- API contract validated;
+- production approved.
+
+Do not market this as external security certification.
+
+### Usage Metering / Commercial Entitlements — ADAPT
+
+If sold as platform infrastructure, meter approved dimensions:
+
+- active tenant locations;
+- active stylists;
+- API usage;
+- AI/copilot usage;
+- event modules;
+- private-event modules.
+
+Metering cannot alter clienteling data truth.
+
+### Additional acceptance
+
+- all API resources are tenant-scoped server-side;
+- embedded UI cannot bypass consent/hold/order rules;
+- credentials can be revoked independently;
+- webhooks are signed and idempotent;
+- SDK versioning is independent of business data;
+- native MB16 UI continues working if partner integration fails.
+
+**Sequencing:** multi-tenant authority -> stable API -> SDK/components -> event contract -> sandbox -> certification -> usage metering.
+
+**Commercial framing:** MB16 becomes luxury clienteling infrastructure that brands can embed into their existing ecosystem rather than replacing it.
+
