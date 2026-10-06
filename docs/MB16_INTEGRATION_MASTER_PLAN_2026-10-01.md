@@ -975,3 +975,100 @@ Metering cannot alter clienteling data truth.
 
 **Commercial framing:** MB16 becomes luxury clienteling infrastructure that brands can embed into their existing ecosystem rather than replacing it.
 
+## Defensibility wave — Clienteling Service Standard and stylist/integration credentials
+
+This wave creates a repeatable service-quality standard for luxury clienteling without scoring clients or turning stylist relationships into a gamified leaderboard.
+
+### MB16 Clienteling Service Standard — ADOPT
+
+Define a versioned process standard covering selected workflows such as:
+
+- client profile completeness;
+- explicit consent/preference state;
+- appointment preparation;
+- prepared look/item evidence;
+- fitting outcome capture;
+- hold/reservation handling;
+- post-visit follow-up;
+- private-event preparation;
+- wardrobe/occasion plan;
+- client-visible share quality;
+- data/privacy hygiene.
+
+A tenant may adopt only the modules relevant to its operating model.
+
+### Service Completion Record — ADOPT
+
+For a completed appointment/event/follow-up sequence generate a structured record:
+
+- tenant/location;
+- clienteling workflow type;
+- standard version;
+- completed steps;
+- skipped/not-applicable steps;
+- stylist;
+- evidence timestamps;
+- follow-up state;
+- record hash/version.
+
+The record is internal service evidence, not a public rating.
+
+### Stylist Capability Credential — ADOPT
+
+Issue scoped internal/portable credentials only for demonstrated platform workflows such as:
+
+- Client Profile & Consent workflow;
+- Fitting Preparation;
+- Wardrobe & Occasion Planning;
+- Private Event Clienteling;
+- Stylist Copilot reviewed-use workflow.
+
+Credential states:
+
+- stylist;
+- tenant/issuer;
+- capability;
+- evidence rule/version;
+- issued/review date;
+- status.
+
+Do not call this fashion certification or professional accreditation unless an external authorised body is involved.
+
+### Integration Partner Credential — ADOPT
+
+For white-label/API partners, issue statuses such as:
+
+- Clienteling API Contract Verified;
+- Embedded Booking Verified;
+- Hold/Reservation Integration Verified;
+- Consent/Privacy Flow Verified.
+
+These are technical process credentials.
+
+### Tenant Benchmark — ADOPT
+
+Allow each tenant to compare its own service workflow against privacy-safe aggregate benchmark such as:
+
+- preparation completion;
+- follow-up completion;
+- fitting conversion;
+- hold-to-purchase;
+- repeat appointment.
+
+Benchmark dimensions require minimum cohort and suppression rules.
+
+No client-level or stylist-ranking benchmark.
+
+### Additional acceptance
+
+- standard steps are explicit/versioned;
+- service records do not expose client PII in portable credentials;
+- stylist credential is scoped to a demonstrated workflow;
+- no hidden customer or stylist score exists;
+- benchmark has minimum cohort/privacy rules;
+- tenant can operate without credential/benchmark modules.
+
+**Sequencing:** white-label SaaS + API/SDK + workflow evidence -> service standard -> completion records -> stylist/integration credentials -> benchmark.
+
+**Moat:** MB16 can sell not only software but a repeatable luxury-clienteling operating standard and verified implementation ecosystem.
+
